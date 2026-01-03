@@ -100,9 +100,37 @@ const Sidebar = ({ selectedDate, onSelectDate }) => {
             </div>
 
             <div style={{ padding: '1rem', borderTop: '1px solid var(--border-color)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                <div
+                    onClick={async () => {
+                        try {
+                            // Dynamic import to avoid circular dependencies if any, though here it's fine
+                            const { db } = await import('../db');
+                            const allMeals = await db.meals.toArray();
+                            const dataStr = JSON.stringify(allMeals, null, 2);
+                            const blob = new Blob([dataStr], { type: "application/json" });
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.href = url;
+                            link.download = `mealog_backup_${new Date().toISOString().slice(0, 10)}.json`;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                        } catch (e) {
+                            console.error('Export failed', e);
+                            alert('Export failed');
+                        }
+                    }}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        fontSize: '0.85rem',
+                        color: 'var(--text-secondary)',
+                        cursor: 'pointer'
+                    }}
+                >
                     <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#27AE60' }}></div>
-                    Online
+                    <span>Backup Data (JSON)</span>
                 </div>
             </div>
         </aside>
