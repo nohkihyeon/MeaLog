@@ -42,7 +42,7 @@ export const useMeals = () => {
             id: meal.id || crypto.randomUUID(),
             timestamp: Date.now(),
         };
-        await db.meals.add(newMeal);
+        await db.meals.put(newMeal);
     };
 
     const deleteMeal = async (id) => {

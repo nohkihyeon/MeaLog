@@ -31,8 +31,10 @@ const MonthFeed = ({ date, meals, onUpdateMeal, onDeleteMeal, onAddMeal }) => {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
                 {daysInMonth.map(dayStr => {
-                    // Filter meals for this day
-                    const dayMeals = meals.filter(m => m.date === dayStr);
+                    // Filter meals for this day and sort by timestamp to keep order stable
+                    const dayMeals = meals
+                        .filter(m => m.date === dayStr)
+                        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
                     return (
                         <DayBlock
                             key={dayStr}

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Trash2 } from 'lucide-react';
 
 const MEAL_TYPES = [
@@ -15,48 +15,166 @@ const InlineMealTable = ({ meals, onUpdate, onDelete, onAdd }) => {
     // before and after it gets added to the list.
     const [nextId, setNextId] = useState(crypto.randomUUID());
 
+    // Optimistic state to prevent UI jitter/disappearance during async DB updates.
+    // Maps ID -> Full Meal Object
+    const [overrides, setOverrides] = useState({});
+
     // Refs for tracking focus
     const rowRefs = useRef({});
     const focusTargetRef = useRef(null);
+
+    // Ref to prevent race conditions where rapid IME input triggers multiple "adds" for the same ID
+    const promotedIds = useRef(new Set());
+
+    // Merge props.meals with local overrides AND the ghost row into one stable list
+    const itemsToRender = useMemo(() => {
+        const result = [];
+        const seenIds = new Set();
+
+        // 1. Process existing meals (applying overrides if any)
+        meals.forEach(meal => {
+            seenIds.add(meal.id);
+            if (overrides[meal.id]) {
+                result.push(overrides[meal.id]);
+            } else {
+                result.push(meal);
+            }
+        });
+
+        // 2. Add new meals from overrides that aren't in props.meals yet
+        Object.values(overrides).forEach(meal => {
+            if (!seenIds.has(meal.id)) {
+                result.push(meal);
+                seenIds.add(meal.id);
+            }
+        });
+
+        // 3. Determine default type from the last real meal
+        const lastMeal = result[result.length - 1];
+        const defaultType = lastMeal ? lastMeal.type : 'breakfast';
+
+        // 4. Always append the "Ghost" row at the end
+        // key must be stable (nextId)
+        result.push({
+            id: nextId,
+            name: '',
+            calories: '',
+            protein: '',
+            intake: '',
+            type: defaultType,
+            isGhost: true
+        });
+
+        return result;
+    }, [meals, overrides, nextId]);
+
+    // Cleanup overrides when DB catches up
+    useEffect(() => {
+        setOverrides(prev => {
+            const next = { ...prev };
+            let changed = false;
+
+            Object.keys(next).forEach(id => {
+                const unsaved = next[id];
+                const saved = meals.find(m => m.id === id);
+
+                // If the meal exists in DB and matches our local state, we can drop the override
+                if (saved) {
+                    const isSynced =
+                        saved.name === unsaved.name &&
+                        String(saved.calories) === String(unsaved.calories || '') &&
+                        String(saved.protein) === String(unsaved.protein || '') &&
+                        String(saved.intake) === String(unsaved.intake || '') &&
+                        saved.type === unsaved.type;
+
+                    if (isSynced) {
+                        delete next[id];
+                        changed = true;
+                    }
+                }
+            });
+
+            return changed ? next : prev;
+        });
+    }, [meals]);
 
     useEffect(() => {
         if (focusTargetRef.current) {
             const el = rowRefs.current[focusTargetRef.current];
             if (el) {
                 const input = el.querySelector('input[name="meal-name"]');
-                if (input) {
-                    // We only focus if it's not already focused (to avoid jitter?), 
-                    // or just force it to ensure continuity.
-                    // For IME, forcing focus *might* be risky if it resets cursor.
-                    // But since we lost focus (per bug report), we must restore it.
+                // Vital Fix for IME: Only focus if NOT already focused.
+                // Re-focusing interrupts composition.
+                if (input && document.activeElement !== input) {
                     input.focus();
                 }
             }
             focusTargetRef.current = null;
         }
-    }, [meals]);
+    }, [nextId]); // Run ONLY when a new row is prepared (meaning the previous one was promoted)
 
     // Handler for valid changes in the "Ghost" row
     const handleGhostUpdate = (id, updates) => {
         // Record that we want to keep focus on this ID
         focusTargetRef.current = nextId;
 
-        // If the update has no content (e.g. empty name), we might not want to add it yet?
-        // But user expects "Auto-create", so even 1 char adds it.
-        // We construct the new meal.
+        // If this ID has already been promoted to "Real", we should treat this as an UPDATE, not an ADD.
+        // This captures the race condition where the second character of an IME composition arrives 
+        // before the state update has fully cycled the component from Ghost -> Real.
+        if (promotedIds.current.has(id)) {
+            handleRowUpdate(id, updates);
+            return;
+        }
+
+        // Find current default type again (safest way to ensure consistency)
+        // We can inspect the ghost row in itemsToRender to see what it was showing
+        const ghostRow = itemsToRender.find(i => i.id === nextId);
+        const currentType = ghostRow ? ghostRow.type : 'breakfast';
+
         const newMeal = {
-            id: nextId, // Use the stable ID we assigned to the ghost
+            id: nextId,
             name: '',
             calories: '',
             protein: '',
             intake: '',
-            type: 'breakfast',
-            ...updates
+            type: currentType, // Inherit what was shown
+            ...updates,
+            isGhost: false // No longer ghost once touched
         };
 
+        // Mark as promoted immediately
+        promotedIds.current.add(id);
+
+        // 1. Optimistic Update
+        setOverrides(prev => ({ ...prev, [newMeal.id]: newMeal }));
+
+        // 2. Trigger DB Update
         onAdd(newMeal);
-        // Generate a new ID for the *next* ghost row
+
+        // 3. Prepare for next entry
         setNextId(crypto.randomUUID());
+    };
+
+    const handleRowUpdate = (id, updates) => {
+        const item = itemsToRender.find(m => m.id === id);
+
+        // Safety check: if modifying the ghost row via this handler (unlikely but possible), divert it
+        if (item && item.isGhost) {
+            handleGhostUpdate(id, updates);
+            return;
+        }
+
+        // 1. Optimistic Update
+        setOverrides(prev => {
+            if (!item) return prev;
+            return {
+                ...prev,
+                [id]: { ...item, ...updates }
+            };
+        });
+
+        // 2. Trigger DB Update
+        onUpdate(id, updates);
     };
 
     return (
@@ -79,29 +197,17 @@ const InlineMealTable = ({ meals, onUpdate, onDelete, onAdd }) => {
                 <div></div>
             </div>
 
-            {/* Existing Rows */}
-            {meals.map((meal) => (
+            {/* Unified Rows */}
+            {itemsToRender.map((meal) => (
                 <MealRow
                     key={meal.id}
                     meal={meal}
-                    onUpdate={onUpdate}
+                    onUpdate={handleRowUpdate}
                     onDelete={onDelete}
+                    isGhost={meal.isGhost}
                     ref={el => rowRefs.current[meal.id] = el}
                 />
             ))}
-
-            {/* Ghost Row (The "New" input) */}
-            {/* It is rendered as a normal MealRow but with a specific key (nextId) */}
-            {/* When modified, it promotes itself via handleGhostUpdate */}
-            <MealRow
-                key={nextId}
-                meal={{ id: nextId, name: '', calories: '', protein: '', intake: '', type: 'breakfast' }}
-                onUpdate={handleGhostUpdate}
-                onDelete={() => { }} // No delete for ghost
-                isGhost={true} // Prop to style it slightly differently (e.g. placeholder)
-                // We also ref the ghost row so we can find it if needed (though mostly for finding it AFTER promotion)
-                ref={el => rowRefs.current[nextId] = el}
-            />
         </div>
     );
 };
@@ -123,7 +229,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost }, ref) =>
                 padding: '0.5rem 0',
                 borderBottom: '1px solid var(--border-color)',
                 alignItems: 'center',
-                opacity: isGhost ? 0.6 : 1
+                opacity: 1 // Stable opacity to prevent repaint during IME
             }}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
@@ -133,7 +239,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost }, ref) =>
                 <input
                     name="meal-name"
                     value={meal.name}
-                    placeholder={isGhost ? "New" : ""}
+                    placeholder="New" // Stable placeholder attribute
                     onChange={e => onUpdate(meal.id, { name: e.target.value })}
                     style={{ border: 'none', padding: '0', width: '100%', outline: 'none' }}
                 />
