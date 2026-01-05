@@ -10,7 +10,7 @@ const MEAL_TYPES = [
     { id: 'cheat', label: '치팅데이', color: '#BB6BD9' },
 ];
 
-const InlineMealTable = ({ meals, onUpdate, onDelete, onAdd }) => {
+const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) => {
     // We manage the "next" item's ID in state so we can render it as a stable component
     // before and after it gets added to the list.
     const [nextId, setNextId] = useState(crypto.randomUUID());
@@ -177,6 +177,27 @@ const InlineMealTable = ({ meals, onUpdate, onDelete, onAdd }) => {
         onUpdate(id, updates);
     };
 
+    // 5. Gather unique recommendations from all history
+    const recommendations = useMemo(() => {
+        const sourceMeals = allMeals.length > 0 ? allMeals : meals;
+        const map = new Map();
+        // Sort by timestamp descending to get the most recent values for each name
+        [...sourceMeals].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).forEach(m => {
+            // Only consider meals that have at least some nutritional data or non-empty intake
+            const hasData = m.calories || m.protein || m.intake;
+            if (m.name && hasData && !map.has(m.name)) {
+                map.set(m.name, {
+                    name: m.name,
+                    calories: m.calories,
+                    protein: m.protein,
+                    intake: m.intake,
+                    type: m.type
+                });
+            }
+        });
+        return Array.from(map.values());
+    }, [allMeals, meals]);
+
     return (
         <div style={{ width: '100%', fontSize: '0.95rem' }}>
             {/* Header */}
@@ -205,6 +226,7 @@ const InlineMealTable = ({ meals, onUpdate, onDelete, onAdd }) => {
                     onUpdate={handleRowUpdate}
                     onDelete={onDelete}
                     isGhost={meal.isGhost}
+                    recommendations={recommendations}
                     ref={el => rowRefs.current[meal.id] = el}
                 />
             ))}
@@ -213,11 +235,65 @@ const InlineMealTable = ({ meals, onUpdate, onDelete, onAdd }) => {
 };
 
 // Sub-component for single row
-const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost }, ref) => {
+const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommendations }, ref) => {
     const [isHovered, setIsHovered] = useState(false);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [selectedIndex, setSelectedIndex] = useState(-1);
 
+    const filteredSuggestions = useMemo(() => {
+        if (!meal.name || !showSuggestions) return [];
+        const lowerName = meal.name.toLowerCase();
+        return recommendations
+            .filter(r => {
+                const rLower = r.name.toLowerCase();
+                const isMatch = rLower.includes(lowerName);
+                const isExact = rLower === lowerName;
+
+                // If it's an exact match, only show it if it provides data the user hasn't typed yet
+                // (e.g. they typed "쉐이크" but calories are empty, so we show the "쉐이크" recommendation with 115kcal)
+                if (isExact) {
+                    const hasNewData = (r.calories && !meal.calories) || (r.protein && !meal.protein);
+                    return hasNewData;
+                }
+
+                return isMatch;
+            })
+            .slice(0, 5);
+    }, [recommendations, meal.name, showSuggestions, meal.calories, meal.protein]);
     const getTypeLabel = (id) => MEAL_TYPES.find(t => t.id === id) || { label: id, color: '#888' };
     const typeObj = getTypeLabel(meal.type);
+
+    const handleSelectSuggestion = (suggestion) => {
+        onUpdate(meal.id, {
+            name: suggestion.name,
+            calories: suggestion.calories,
+            protein: suggestion.protein,
+            intake: suggestion.intake,
+            type: suggestion.type
+        });
+        setShowSuggestions(false);
+        setSelectedIndex(-1);
+    };
+
+    const handleKeyDown = (e) => {
+        if (filteredSuggestions.length > 0) {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setSelectedIndex(prev => (prev + 1) % filteredSuggestions.length);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setSelectedIndex(prev => (prev - 1 + filteredSuggestions.length) % filteredSuggestions.length);
+            } else if (e.key === 'Enter' || e.key === 'Tab') {
+                const target = selectedIndex >= 0 ? filteredSuggestions[selectedIndex] : filteredSuggestions[0];
+                if (target) {
+                    e.preventDefault();
+                    handleSelectSuggestion(target);
+                }
+            } else if (e.key === 'Escape') {
+                setShowSuggestions(false);
+            }
+        }
+    };
 
     return (
         <div
@@ -229,20 +305,81 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost }, ref) =>
                 padding: '0.5rem 0',
                 borderBottom: '1px solid var(--border-color)',
                 alignItems: 'center',
-                opacity: 1 // Stable opacity to prevent repaint during IME
+                opacity: 1, // Stable opacity to prevent repaint during IME
+                position: 'relative'
             }}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
         >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingRight: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingRight: '1rem', position: 'relative' }}>
                 <div style={{ width: '1.2rem' }}></div>
-                <input
-                    name="meal-name"
-                    value={meal.name}
-                    placeholder="New" // Stable placeholder attribute
-                    onChange={e => onUpdate(meal.id, { name: e.target.value })}
-                    style={{ border: 'none', padding: '0', width: '100%', outline: 'none' }}
-                />
+                <div style={{ flex: 1, position: 'relative' }}>
+                    <input
+                        name="meal-name"
+                        value={meal.name}
+                        placeholder="New"
+                        onChange={e => {
+                            onUpdate(meal.id, { name: e.target.value });
+                            setShowSuggestions(true);
+                            setSelectedIndex(-1);
+                        }}
+                        onFocus={() => setShowSuggestions(true)}
+                        onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                        onKeyDown={handleKeyDown}
+                        style={{ border: 'none', padding: '0', width: '100%', outline: 'none', background: 'transparent' }}
+                        autoComplete="off"
+                    />
+
+                    {/* Suggestions list */}
+                    {showSuggestions && filteredSuggestions.length > 0 && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: 0,
+                            right: 0,
+                            zIndex: 100,
+                            background: 'var(--bg-secondary, rgba(255, 255, 255, 0.9))',
+                            backdropFilter: 'blur(10px)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                            marginTop: '4px',
+                            overflow: 'hidden'
+                        }}>
+                            {filteredSuggestions.map((suggestion, index) => (
+                                <div
+                                    key={suggestion.name}
+                                    onClick={() => handleSelectSuggestion(suggestion)}
+                                    onMouseEnter={() => setSelectedIndex(index)}
+                                    style={{
+                                        padding: '0.6rem 1rem',
+                                        cursor: 'pointer',
+                                        backgroundColor: selectedIndex === index ? 'var(--bg-tertiary, #f0f0f0)' : 'transparent',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '2px',
+                                        transition: 'background-color 0.2s ease'
+                                    }}
+                                >
+                                    <div style={{ fontWeight: '500', fontSize: '0.9rem' }}>{suggestion.name}</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', display: 'flex', gap: '8px' }}>
+                                        <span>🔥 {suggestion.calories}kcal</span>
+                                        <span>💪 {suggestion.protein}g</span>
+                                        <span style={{
+                                            backgroundColor: getTypeLabel(suggestion.type).color,
+                                            color: 'white',
+                                            padding: '0 4px',
+                                            borderRadius: '3px',
+                                            fontSize: '0.7rem'
+                                        }}>
+                                            {getTypeLabel(suggestion.type).label}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
 
             <div style={{ paddingRight: '1rem' }}>

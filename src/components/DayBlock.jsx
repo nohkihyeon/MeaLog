@@ -1,7 +1,7 @@
 import React from 'react';
 import InlineMealTable from './InlineMealTable';
 
-const DayBlock = ({ date, meals, onUpdateMeal, onDeleteMeal, onAddMeal }) => {
+const DayBlock = ({ date, meals, allMeals, onUpdateMeal, onDeleteMeal, onAddMeal }) => {
     const dayNum = new Date(date).getDate();
 
     // Calculate Summaries
@@ -18,6 +18,7 @@ const DayBlock = ({ date, meals, onUpdateMeal, onDeleteMeal, onAddMeal }) => {
 
             <InlineMealTable
                 meals={meals}
+                allMeals={allMeals}
                 onUpdate={onUpdateMeal}
                 onDelete={onDeleteMeal}
                 onAdd={(meal) => onAddMeal({ ...meal, date })}

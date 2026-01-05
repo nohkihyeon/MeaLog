@@ -40,6 +40,7 @@ const MonthFeed = ({ date, meals, onUpdateMeal, onDeleteMeal, onAddMeal }) => {
                             key={dayStr}
                             date={dayStr}
                             meals={dayMeals}
+                            allMeals={meals}
                             onUpdateMeal={onUpdateMeal}
                             onDeleteMeal={onDeleteMeal}
                             onAddMeal={onAddMeal}
