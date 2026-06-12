@@ -5,9 +5,14 @@ import MonthFeed from './components/MonthFeed';
 import { useMeals } from './hooks/useMeals';
 
 function App() {
-  // Default to 2026-01-01 as per request (or current date if preferred, but user mentioned 2026)
-  // Let's start with Jan 1st 2026 to show the full Year view structure
-  const [currentDate, setCurrentDate] = useState('2026-01-01');
+  // Default to today's date
+  const [currentDate, setCurrentDate] = useState(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  });
 
   const { meals, addMeal, deleteMeal, updateMeal } = useMeals();
 

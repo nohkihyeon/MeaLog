@@ -17,6 +17,18 @@ const MonthFeed = ({ date, meals, onUpdateMeal, onDeleteMeal, onAddMeal }) => {
 
     const monthLabel = `${month + 1}월`;
 
+    // Auto-scroll to the selected date
+    useEffect(() => {
+        // Short timeout to ensure rendering is complete
+        const timer = setTimeout(() => {
+            const element = document.getElementById(`date-${date}`);
+            if (element) {
+                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 100);
+        return () => clearTimeout(timer);
+    }, [date]);
+
     return (
         <div style={{ maxWidth: '900px', margin: '0 auto', padding: '3rem 2rem' }}>
             <h1 style={{
@@ -36,15 +48,16 @@ const MonthFeed = ({ date, meals, onUpdateMeal, onDeleteMeal, onAddMeal }) => {
                         .filter(m => m.date === dayStr)
                         .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
                     return (
-                        <DayBlock
-                            key={dayStr}
-                            date={dayStr}
-                            meals={dayMeals}
-                            allMeals={meals}
-                            onUpdateMeal={onUpdateMeal}
-                            onDeleteMeal={onDeleteMeal}
-                            onAddMeal={onAddMeal}
-                        />
+                        <div key={dayStr} id={`date-${dayStr}`}>
+                            <DayBlock
+                                date={dayStr}
+                                meals={dayMeals}
+                                allMeals={meals}
+                                onUpdateMeal={onUpdateMeal}
+                                onDeleteMeal={onDeleteMeal}
+                                onAddMeal={onAddMeal}
+                            />
+                        </div>
                     );
                 })}
             </div>
