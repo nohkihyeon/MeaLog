@@ -75,6 +75,7 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
 
     // Cleanup overrides when DB catches up
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- IME 조합 중 리포커스를 피하려고 의도적으로 effect에서 정리한다
         setOverrides(prev => {
             const next = { ...prev };
             let changed = false;

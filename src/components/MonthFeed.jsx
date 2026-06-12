@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useRef } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import DayBlock from './DayBlock';
 
 const MonthFeed = ({ date, meals, onUpdateMeal, onDeleteMeal, onAddMeal }) => {
@@ -30,14 +30,8 @@ const MonthFeed = ({ date, meals, onUpdateMeal, onDeleteMeal, onAddMeal }) => {
     }, [date]);
 
     return (
-        <div style={{ maxWidth: '900px', margin: '0 auto', padding: '3rem 2rem' }}>
-            <h1 style={{
-                fontSize: '3rem',
-                fontWeight: 700,
-                marginBottom: '2rem',
-                borderBottom: '1px solid var(--border-color)',
-                paddingBottom: '1rem'
-            }}>
+        <div className="month-feed">
+            <h1 className="month-title">
                 {monthLabel}
             </h1>
 

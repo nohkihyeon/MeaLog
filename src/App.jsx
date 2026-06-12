@@ -15,11 +15,26 @@ function App() {
     return `${year}-${month}-${day}`;
   });
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const { meals, addMeal, deleteMeal, updateMeal } = useMeals();
   useSyncTriggers();
 
   return (
-    <Layout sidebar={<Sidebar selectedDate={currentDate} onSelectDate={setCurrentDate} />}>
+    <Layout
+      sidebarOpen={sidebarOpen}
+      onToggleSidebar={() => setSidebarOpen(o => !o)}
+      onCloseSidebar={() => setSidebarOpen(false)}
+      sidebar={
+        <Sidebar
+          selectedDate={currentDate}
+          onSelectDate={(d) => {
+            setCurrentDate(d);
+            setSidebarOpen(false);
+          }}
+        />
+      }
+    >
       <MonthFeed
         date={currentDate}
         meals={meals}

@@ -18,17 +18,7 @@ const Sidebar = ({ selectedDate, onSelectDate }) => {
     };
 
     return (
-        <aside style={{
-            width: '240px',
-            backgroundColor: 'var(--bg-secondary)',
-            borderRight: '1px solid var(--border-color)',
-            height: '100vh',
-            display: 'flex',
-            flexDirection: 'column',
-            position: 'fixed',
-            left: 0,
-            top: 0
-        }}>
+        <aside className="app-sidebar">
             <div style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
                 <div style={{
                     width: '20px', height: '20px', backgroundColor: '#EB5757', borderRadius: '4px',

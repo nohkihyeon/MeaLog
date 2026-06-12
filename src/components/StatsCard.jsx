@@ -18,7 +18,9 @@ const StatsCard = ({ stats }) => {
             marginBottom: '2rem',
             border: '1px solid var(--border-color)'
         }}>
-            {STAT_ITEMS.map(({ key, label, unit, Icon, color, bg }) => (
+            {STAT_ITEMS.map((item) => {
+                const { key, label, unit, Icon, color, bg } = item;
+                return (
                 <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                     <div style={{
                         width: '48px',
@@ -38,7 +40,8 @@ const StatsCard = ({ stats }) => {
                         </p>
                     </div>
                 </div>
-            ))}
+                );
+            })}
         </div>
     );
 };
