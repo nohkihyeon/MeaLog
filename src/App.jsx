@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import Sidebar from './components/Sidebar';
 import MonthFeed from './components/MonthFeed';
 import { useMeals } from './hooks/useMeals';
+import { useSyncTriggers } from './hooks/useSync';
 
 function App() {
   // Default to today's date
@@ -15,6 +16,7 @@ function App() {
   });
 
   const { meals, addMeal, deleteMeal, updateMeal } = useMeals();
+  useSyncTriggers();
 
   return (
     <Layout sidebar={<Sidebar selectedDate={currentDate} onSelectDate={setCurrentDate} />}>

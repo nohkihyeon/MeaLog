@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, FileText } from 'lucide-react';
+import SyncStatus from './SyncStatus';
 
 const Sidebar = ({ selectedDate, onSelectDate }) => {
     const currentYear = new Date(selectedDate).getFullYear();
@@ -99,7 +100,8 @@ const Sidebar = ({ selectedDate, onSelectDate }) => {
                 </div>
             </div>
 
-            <div style={{ padding: '1rem', borderTop: '1px solid var(--border-color)' }}>
+            <div style={{ padding: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <SyncStatus />
                 <div
                     onClick={async () => {
                         try {

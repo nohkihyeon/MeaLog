@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { useEffect } from 'react';
+import { scheduleSync } from '../sync';
 
 const STORAGE_KEY = 'eating_record_meals';
 
@@ -52,15 +53,18 @@ export const useMeals = () => {
             updatedAt: Date.now(),
             deleted: 0,
         });
+        scheduleSync();
     };
 
     // Soft delete so the deletion itself can propagate to other devices on sync
     const deleteMeal = async (id) => {
         await db.meals.update(id, { deleted: 1, updatedAt: Date.now() });
+        scheduleSync();
     };
 
     const updateMeal = async (id, updates) => {
         await db.meals.update(id, { ...updates, updatedAt: Date.now() });
+        scheduleSync();
     };
 
     const getMealsByDate = (dateStr) => {
