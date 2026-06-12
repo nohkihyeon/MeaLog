@@ -5,8 +5,11 @@ import { useEffect } from 'react';
 const STORAGE_KEY = 'eating_record_meals';
 
 export const useMeals = () => {
-    // Live Query for real-time updates from IndexedDB
-    const meals = useLiveQuery(() => db.meals.toArray(), []) || [];
+    // Live Query for real-time updates from IndexedDB (soft-deleted rows excluded)
+    const meals = useLiveQuery(
+        () => db.meals.where('deleted').equals(0).toArray(),
+        []
+    ) || [];
 
     // One-time migration from LocalStorage to Dexie
     useEffect(() => {
@@ -17,12 +20,17 @@ export const useMeals = () => {
                     const parsedMeals = JSON.parse(saved);
                     if (Array.isArray(parsedMeals) && parsedMeals.length > 0) {
                         console.log('Migrating data to IndexedDB...', parsedMeals.length);
-                        // Bulk add to Dexie
+                        // Old localStorage records predate the v2 fields, so fill defaults
+                        const normalized = parsedMeals.map(m => ({
+                            carbs: '',
+                            fat: '',
+                            updatedAt: m.timestamp ?? Date.now(),
+                            deleted: 0,
+                            ...m,
+                        }));
                         // We use bulkPut to avoid duplicate key errors if ids conflict
-                        await db.meals.bulkPut(parsedMeals);
+                        await db.meals.bulkPut(normalized);
 
-                        // Clear localStorage after successful migration
-                        // localStorage.removeItem(STORAGE_KEY); 
                         // Renaming key to keep a backup just in case
                         localStorage.setItem(STORAGE_KEY + '_backup', saved);
                         localStorage.removeItem(STORAGE_KEY);
@@ -37,20 +45,22 @@ export const useMeals = () => {
     }, []);
 
     const addMeal = async (meal) => {
-        const newMeal = {
+        await db.meals.put({
             ...meal,
             id: meal.id || crypto.randomUUID(),
             timestamp: Date.now(),
-        };
-        await db.meals.put(newMeal);
+            updatedAt: Date.now(),
+            deleted: 0,
+        });
     };
 
+    // Soft delete so the deletion itself can propagate to other devices on sync
     const deleteMeal = async (id) => {
-        await db.meals.delete(id);
+        await db.meals.update(id, { deleted: 1, updatedAt: Date.now() });
     };
 
     const updateMeal = async (id, updates) => {
-        await db.meals.update(id, updates);
+        await db.meals.update(id, { ...updates, updatedAt: Date.now() });
     };
 
     const getMealsByDate = (dateStr) => {
@@ -65,8 +75,10 @@ export const useMeals = () => {
             (acc, meal) => ({
                 calories: acc.calories + (Number(meal.calories) || 0),
                 protein: acc.protein + (Number(meal.protein) || 0),
+                carbs: acc.carbs + (Number(meal.carbs) || 0),
+                fat: acc.fat + (Number(meal.fat) || 0),
             }),
-            { calories: 0, protein: 0 }
+            { calories: 0, protein: 0, carbs: 0, fat: 0 }
         );
     };
 

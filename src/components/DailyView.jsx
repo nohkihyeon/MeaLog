@@ -62,10 +62,14 @@ const DailyView = ({ meals, onDelete }) => {
 
                             <div>
                                 <p style={{ fontWeight: 500, marginBottom: '0.25rem' }}>{meal.name}</p>
-                                <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                                     <span>{meal.calories} kcal</span>
                                     <span>•</span>
                                     <span>{meal.protein}g protein</span>
+                                    <span>•</span>
+                                    <span>{meal.carbs || 0}g carbs</span>
+                                    <span>•</span>
+                                    <span>{meal.fat || 0}g fat</span>
                                 </div>
                             </div>
                         </div>

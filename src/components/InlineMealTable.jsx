@@ -10,6 +10,9 @@ const MEAL_TYPES = [
     { id: 'cheat', label: '치팅데이', color: '#BB6BD9' },
 ];
 
+// Header and rows are separate grid containers, so they must share one template
+const GRID_TEMPLATE = 'minmax(150px, 2fr) 110px 95px 85px 80px 90px 105px 36px';
+
 const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) => {
     // We manage the "next" item's ID in state so we can render it as a stable component
     // before and after it gets added to the list.
@@ -60,6 +63,8 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
             name: '',
             calories: '',
             protein: '',
+            carbs: '',
+            fat: '',
             intake: '',
             type: defaultType,
             isGhost: true
@@ -84,6 +89,8 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
                         saved.name === unsaved.name &&
                         String(saved.calories) === String(unsaved.calories || '') &&
                         String(saved.protein) === String(unsaved.protein || '') &&
+                        String(saved.carbs ?? '') === String(unsaved.carbs ?? '') &&
+                        String(saved.fat ?? '') === String(unsaved.fat ?? '') &&
                         String(saved.intake) === String(unsaved.intake || '') &&
                         saved.type === unsaved.type;
 
@@ -136,6 +143,8 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
             name: '',
             calories: '',
             protein: '',
+            carbs: '',
+            fat: '',
             intake: '',
             type: currentType, // Inherit what was shown
             ...updates,
@@ -184,12 +193,14 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
         // Sort by timestamp descending to get the most recent values for each name
         [...sourceMeals].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).forEach(m => {
             // Only consider meals that have at least some nutritional data or non-empty intake
-            const hasData = m.calories || m.protein || m.intake;
+            const hasData = m.calories || m.protein || m.carbs || m.fat || m.intake;
             if (m.name && hasData && !map.has(m.name)) {
                 map.set(m.name, {
                     name: m.name,
                     calories: m.calories,
                     protein: m.protein,
+                    carbs: m.carbs ?? '',
+                    fat: m.fat ?? '',
                     intake: m.intake,
                     type: m.type
                 });
@@ -199,37 +210,41 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
     }, [allMeals, meals]);
 
     return (
-        <div style={{ width: '100%', fontSize: '0.95rem' }}>
-            {/* Header */}
-            <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(200px, 2fr) 100px 100px 100px 120px 40px',
-                gap: '0',
-                borderBottom: '1px solid var(--border-color)',
-                paddingBottom: '0.5rem',
-                color: 'var(--text-secondary)',
-                fontSize: '0.85rem'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>🍲 음식</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>⚖️ 칼로리(Kcal)</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>🔥 단백질(g)</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>🥣 섭취량(g)</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>📋 식사 종류</div>
-                <div></div>
-            </div>
+        <div className="meal-table-scroll">
+            <div style={{ minWidth: '780px', fontSize: '0.95rem' }}>
+                {/* Header */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: GRID_TEMPLATE,
+                    gap: '0',
+                    borderBottom: '1px solid var(--border-color)',
+                    paddingBottom: '0.5rem',
+                    color: 'var(--text-secondary)',
+                    fontSize: '0.85rem'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>🍲 음식</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>⚖️ 칼로리(Kcal)</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>🔥 단백질(g)</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>🍚 탄수(g)</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>🥑 지방(g)</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>🥣 섭취량(g)</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>📋 식사 종류</div>
+                    <div></div>
+                </div>
 
-            {/* Unified Rows */}
-            {itemsToRender.map((meal) => (
-                <MealRow
-                    key={meal.id}
-                    meal={meal}
-                    onUpdate={handleRowUpdate}
-                    onDelete={onDelete}
-                    isGhost={meal.isGhost}
-                    recommendations={recommendations}
-                    ref={el => rowRefs.current[meal.id] = el}
-                />
-            ))}
+                {/* Unified Rows */}
+                {itemsToRender.map((meal) => (
+                    <MealRow
+                        key={meal.id}
+                        meal={meal}
+                        onUpdate={handleRowUpdate}
+                        onDelete={onDelete}
+                        isGhost={meal.isGhost}
+                        recommendations={recommendations}
+                        ref={el => rowRefs.current[meal.id] = el}
+                    />
+                ))}
+            </div>
         </div>
     );
 };
@@ -252,14 +267,18 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                 // If it's an exact match, only show it if it provides data the user hasn't typed yet
                 // (e.g. they typed "쉐이크" but calories are empty, so we show the "쉐이크" recommendation with 115kcal)
                 if (isExact) {
-                    const hasNewData = (r.calories && !meal.calories) || (r.protein && !meal.protein);
+                    const hasNewData = (r.calories && !meal.calories) || (r.protein && !meal.protein) ||
+                        (r.carbs && !meal.carbs) || (r.fat && !meal.fat);
                     return hasNewData;
                 }
 
                 return isMatch;
             })
             .slice(0, 5);
-    }, [recommendations, meal.name, showSuggestions, meal.calories, meal.protein]);
+    }, [recommendations, meal.name, showSuggestions, meal.calories, meal.protein, meal.carbs, meal.fat]);
+
+    // 탄단지가 입력돼 있고 칼로리가 비어 있으면 4/4/9 환산값을 placeholder로 제안
+    const macroKcal = (Number(meal.carbs) || 0) * 4 + (Number(meal.protein) || 0) * 4 + (Number(meal.fat) || 0) * 9;
     const getTypeLabel = (id) => MEAL_TYPES.find(t => t.id === id) || { label: id, color: '#888' };
     const typeObj = getTypeLabel(meal.type);
 
@@ -268,6 +287,8 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
             name: suggestion.name,
             calories: suggestion.calories,
             protein: suggestion.protein,
+            carbs: suggestion.carbs ?? '',
+            fat: suggestion.fat ?? '',
             intake: suggestion.intake,
             type: suggestion.type
         });
@@ -300,7 +321,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
             ref={ref}
             style={{
                 display: 'grid',
-                gridTemplateColumns: 'minmax(200px, 2fr) 100px 100px 100px 120px 40px',
+                gridTemplateColumns: GRID_TEMPLATE,
                 gap: '0',
                 padding: '0.5rem 0',
                 borderBottom: '1px solid var(--border-color)',
@@ -365,6 +386,8 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                                     <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', display: 'flex', gap: '8px' }}>
                                         <span>🔥 {suggestion.calories}kcal</span>
                                         <span>💪 {suggestion.protein}g</span>
+                                        {suggestion.carbs !== '' && <span>🍚 {suggestion.carbs}g</span>}
+                                        {suggestion.fat !== '' && <span>🥑 {suggestion.fat}g</span>}
                                         <span style={{
                                             backgroundColor: getTypeLabel(suggestion.type).color,
                                             color: 'white',
@@ -387,6 +410,8 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                     type="number"
                     value={meal.calories}
                     onChange={e => onUpdate(meal.id, { calories: e.target.value })}
+                    placeholder={macroKcal > 0 ? String(macroKcal) : ''}
+                    title={macroKcal > 0 ? `탄단지 환산 약 ${macroKcal}kcal` : undefined}
                     style={{ border: 'none', padding: '0', width: '100%', textAlign: 'right', outline: 'none' }}
                 />
             </div>
@@ -396,6 +421,24 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                     type="number"
                     value={meal.protein}
                     onChange={e => onUpdate(meal.id, { protein: e.target.value })}
+                    style={{ border: 'none', padding: '0', width: '100%', textAlign: 'right', outline: 'none' }}
+                />
+            </div>
+
+            <div style={{ paddingRight: '1rem' }}>
+                <input
+                    type="number"
+                    value={meal.carbs ?? ''}
+                    onChange={e => onUpdate(meal.id, { carbs: e.target.value })}
+                    style={{ border: 'none', padding: '0', width: '100%', textAlign: 'right', outline: 'none' }}
+                />
+            </div>
+
+            <div style={{ paddingRight: '1rem' }}>
+                <input
+                    type="number"
+                    value={meal.fat ?? ''}
+                    onChange={e => onUpdate(meal.id, { fat: e.target.value })}
                     style={{ border: 'none', padding: '0', width: '100%', textAlign: 'right', outline: 'none' }}
                 />
             </div>

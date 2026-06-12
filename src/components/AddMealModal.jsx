@@ -13,10 +13,15 @@ const AddMealModal = ({ isOpen, onClose, onSave, date }) => {
         name: '',
         calories: '',
         protein: '',
+        carbs: '',
+        fat: '',
         type: 'breakfast',
     });
 
     if (!isOpen) return null;
+
+    // 탄단지 4/4/9 환산 칼로리 — 칼로리 미입력 시 placeholder로 제안
+    const macroKcal = (Number(formData.carbs) || 0) * 4 + (Number(formData.protein) || 0) * 4 + (Number(formData.fat) || 0) * 9;
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -25,8 +30,10 @@ const AddMealModal = ({ isOpen, onClose, onSave, date }) => {
             date,
             calories: Number(formData.calories),
             protein: Number(formData.protein),
+            carbs: formData.carbs === '' ? '' : Number(formData.carbs),
+            fat: formData.fat === '' ? '' : Number(formData.fat),
         });
-        setFormData({ name: '', calories: '', protein: '', type: 'breakfast' });
+        setFormData({ name: '', calories: '', protein: '', carbs: '', fat: '', type: 'breakfast' });
         onClose();
     };
 
@@ -78,7 +85,7 @@ const AddMealModal = ({ isOpen, onClose, onSave, date }) => {
                                 style={{ width: '100%', padding: '0.75rem', fontSize: '1rem' }}
                                 value={formData.calories}
                                 onChange={e => setFormData({ ...formData, calories: e.target.value })}
-                                placeholder="0"
+                                placeholder={macroKcal > 0 ? String(macroKcal) : '0'}
                             />
                         </div>
                         <div>
@@ -89,6 +96,26 @@ const AddMealModal = ({ isOpen, onClose, onSave, date }) => {
                                 style={{ width: '100%', padding: '0.75rem', fontSize: '1rem' }}
                                 value={formData.protein}
                                 onChange={e => setFormData({ ...formData, protein: e.target.value })}
+                                placeholder="0"
+                            />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Carbs (g)</label>
+                            <input
+                                type="number"
+                                style={{ width: '100%', padding: '0.75rem', fontSize: '1rem' }}
+                                value={formData.carbs}
+                                onChange={e => setFormData({ ...formData, carbs: e.target.value })}
+                                placeholder="0"
+                            />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Fat (g)</label>
+                            <input
+                                type="number"
+                                style={{ width: '100%', padding: '0.75rem', fontSize: '1rem' }}
+                                value={formData.fat}
+                                onChange={e => setFormData({ ...formData, fat: e.target.value })}
                                 placeholder="0"
                             />
                         </div>

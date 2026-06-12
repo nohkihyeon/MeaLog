@@ -8,7 +8,9 @@ const DayBlock = ({ date, meals, allMeals, onUpdateMeal, onDeleteMeal, onAddMeal
     const sums = meals.reduce((acc, meal) => ({
         calories: acc.calories + (Number(meal.calories) || 0),
         protein: acc.protein + (Number(meal.protein) || 0),
-    }), { calories: 0, protein: 0 });
+        carbs: acc.carbs + (Number(meal.carbs) || 0),
+        fat: acc.fat + (Number(meal.fat) || 0),
+    }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
     return (
         <div style={{ marginBottom: '1rem' }}>
@@ -30,13 +32,16 @@ const DayBlock = ({ date, meals, allMeals, onUpdateMeal, onDeleteMeal, onAddMeal
                 borderTop: '1px solid var(--border-color)',
                 display: 'flex',
                 justifyContent: 'center',
+                flexWrap: 'wrap',
                 color: 'var(--text-secondary)',
                 fontSize: '0.9rem',
                 fontWeight: 500,
-                gap: '2rem'
+                gap: '0.5rem 2rem'
             }}>
                 <span>칼로리 합 {sums.calories} kcal</span>
                 <span>단백질 합 {sums.protein} g</span>
+                <span>탄수 합 {sums.carbs} g</span>
+                <span>지방 합 {sums.fat} g</span>
             </div>
         </div>
     );
