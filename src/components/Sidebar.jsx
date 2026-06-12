@@ -124,6 +124,53 @@ const Sidebar = ({ selectedDate, onSelectDate }) => {
                     <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#27AE60' }}></div>
                     <span>Backup Data (JSON)</span>
                 </div>
+
+                <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    fontSize: '0.85rem',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer'
+                }}>
+                    <input
+                        type="file"
+                        accept=".json,application/json"
+                        style={{ display: 'none' }}
+                        onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = ''; // 같은 파일을 다시 선택해도 onChange가 뜨도록
+                            if (!file) return;
+                            try {
+                                const records = JSON.parse(await file.text());
+                                if (!Array.isArray(records)) throw new Error('백업 JSON 형식이 아닙니다');
+
+                                const { db } = await import('../db');
+                                const { scheduleSync } = await import('../sync');
+                                const now = Date.now();
+                                const meals = records
+                                    .filter(m => m.id && m.date)
+                                    .map(m => ({
+                                        carbs: '',
+                                        fat: '',
+                                        intake: '',
+                                        ...m,
+                                        // 가져온 데이터가 동기화 push 대상이 되도록 현재 시각으로 갱신
+                                        updatedAt: now,
+                                        deleted: m.deleted ? 1 : 0,
+                                    }));
+                                await db.meals.bulkPut(meals);
+                                scheduleSync(500);
+                                alert(`${meals.length}개 식단을 가져왔습니다. 로그인 상태면 곧 클라우드로 동기화됩니다.`);
+                            } catch (err) {
+                                console.error('Import failed', err);
+                                alert('가져오기 실패: ' + err.message);
+                            }
+                        }}
+                    />
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#2D9CDB' }}></div>
+                    <span>Import Data (JSON)</span>
+                </label>
             </div>
         </aside>
     );
