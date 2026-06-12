@@ -47,12 +47,27 @@ export async function signOut() {
     await supabase.auth.signOut();
 }
 
+const OWNER_KEY = 'mealog_owner_user_id'; // 이 기기의 로컬 DB가 누구 데이터인지 기록
+
 if (supabase) {
     // INITIAL_SESSION 이벤트도 여기로 들어오므로, 로그인 상태로 앱을 켜면 즉시 1회 동기화된다
     supabase.auth.onAuthStateChange((_event, session) => {
         const user = session?.user ?? null;
         setState({ user, status: user ? 'idle' : 'logged_out' });
-        if (user) scheduleSync(0);
+        if (!user) return; // 로그아웃 시 로컬 데이터는 보존 (같은 사람이 다시 로그인하는 경우가 대부분)
+
+        const prevOwner = localStorage.getItem(OWNER_KEY);
+        if (prevOwner && prevOwner !== user.id) {
+            // 같은 브라우저에서 다른 계정으로 전환 — 이전 계정의 로컬 데이터가
+            // 새 계정으로 push되거나 화면에 섞이지 않도록 로컬을 비우고 새로 pull한다
+            localStorage.removeItem(LAST_PUSH_KEY);
+            localStorage.removeItem(LAST_PULL_KEY);
+            localStorage.setItem(OWNER_KEY, user.id);
+            db.meals.clear().then(() => scheduleSync(0));
+            return;
+        }
+        localStorage.setItem(OWNER_KEY, user.id);
+        scheduleSync(0);
     });
 }
 
