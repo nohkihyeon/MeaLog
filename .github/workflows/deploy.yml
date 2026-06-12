@@ -33,8 +33,9 @@ jobs:
 
       - run: npm ci
 
-      # 저장소 이름 하위 경로(https://<user>.github.io/MeaLog/)로 서빙되므로 base 지정
-      - run: npx vite build --base=/MeaLog/
+      # 저장소 이름 하위 경로(https://<user>.github.io/<repo>/)로 서빙되므로 base 지정.
+      # 저장소 이름에서 자동으로 가져오므로 repo를 rename해도 그대로 동작한다.
+      - run: npx vite build --base=/${{ github.event.repository.name }}/
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
