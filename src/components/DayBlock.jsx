@@ -1,12 +1,13 @@
 import React from 'react';
 import InlineMealTable from './InlineMealTable';
+import { getEffectiveCalories } from '../utils/nutrition';
 
 const DayBlock = ({ date, meals, allMeals, onUpdateMeal, onDeleteMeal, onAddMeal }) => {
     const dayNum = new Date(date).getDate();
 
     // Calculate Summaries
     const sums = meals.reduce((acc, meal) => ({
-        calories: acc.calories + (Number(meal.calories) || 0),
+        calories: acc.calories + getEffectiveCalories(meal),
         protein: acc.protein + (Number(meal.protein) || 0),
         carbs: acc.carbs + (Number(meal.carbs) || 0),
         fat: acc.fat + (Number(meal.fat) || 0),

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Trash2, Coffee, Sun, Moon, Utensils } from 'lucide-react';
+import { getEffectiveCalories } from '../utils/nutrition';
 
 const MEAL_Icons = {
     breakfast: Coffee,
@@ -63,7 +64,7 @@ const DailyView = ({ meals, onDelete }) => {
                             <div>
                                 <p style={{ fontWeight: 500, marginBottom: '0.25rem' }}>{meal.name}</p>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    <span>{meal.calories} kcal</span>
+                                    <span>{getEffectiveCalories(meal)} kcal</span>
                                     <span>•</span>
                                     <span>{meal.protein}g protein</span>
                                     <span>•</span>

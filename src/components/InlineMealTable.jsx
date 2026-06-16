@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Trash2 } from 'lucide-react';
+import { calcMacroKcal } from '../utils/nutrition';
 
 const MEAL_TYPES = [
     { id: 'breakfast', label: '아침', color: '#2F80ED' },
@@ -278,8 +279,10 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
             .slice(0, 5);
     }, [recommendations, meal.name, showSuggestions, meal.calories, meal.protein, meal.carbs, meal.fat]);
 
-    // 탄단지가 입력돼 있고 칼로리가 비어 있으면 4/4/9 환산값을 placeholder로 제안
-    const macroKcal = (Number(meal.carbs) || 0) * 4 + (Number(meal.protein) || 0) * 4 + (Number(meal.fat) || 0) * 9;
+    // 탄단지가 입력돼 있고 칼로리가 비어 있으면 4/4/9 환산값을 자동으로 보여준다
+    const macroKcal = calcMacroKcal(meal);
+    const caloriesEmpty = meal.calories === '' || meal.calories === null || meal.calories === undefined;
+    const showAutoCalories = caloriesEmpty && macroKcal > 0;
     const getTypeLabel = (id) => MEAL_TYPES.find(t => t.id === id) || { label: id, color: '#888' };
     const typeObj = getTypeLabel(meal.type);
 
@@ -406,15 +409,35 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                 </div>
             </div>
 
-            <div style={{ paddingRight: '1rem' }}>
+            <div style={{ paddingRight: '1rem', position: 'relative' }}>
                 <input
                     type="number"
                     value={meal.calories}
                     onChange={e => onUpdate(meal.id, { calories: e.target.value })}
-                    placeholder={macroKcal > 0 ? String(macroKcal) : ''}
-                    title={macroKcal > 0 ? `탄단지 환산 약 ${macroKcal}kcal` : undefined}
+                    title={macroKcal > 0 ? `탄단지 환산 약 ${macroKcal}kcal (직접 입력하면 그 값이 우선)` : undefined}
                     style={{ border: 'none', padding: '0', width: '100%', textAlign: 'right', outline: 'none' }}
                 />
+                {/* 칼로리를 직접 입력하지 않았을 때, 탄단지 환산값을 흰색·흐릿하게 표시. 합계에는 자동 반영됨 */}
+                {showAutoCalories && (
+                    <span
+                        style={{
+                            position: 'absolute',
+                            top: 0,
+                            bottom: 0,
+                            left: 0,
+                            right: '1rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-end',
+                            color: '#FFFFFF',
+                            opacity: 0.45,
+                            filter: 'blur(0.4px)',
+                            pointerEvents: 'none'
+                        }}
+                    >
+                        {macroKcal}
+                    </span>
+                )}
             </div>
 
             <div style={{ paddingRight: '1rem' }}>

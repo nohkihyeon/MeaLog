@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { useEffect } from 'react';
 import { scheduleSync } from '../sync';
+import { getEffectiveCalories } from '../utils/nutrition';
 
 const STORAGE_KEY = 'eating_record_meals';
 
@@ -77,7 +78,7 @@ export const useMeals = () => {
         const daysMeals = getMealsByDate(dateStr);
         return daysMeals.reduce(
             (acc, meal) => ({
-                calories: acc.calories + (Number(meal.calories) || 0),
+                calories: acc.calories + getEffectiveCalories(meal),
                 protein: acc.protein + (Number(meal.protein) || 0),
                 carbs: acc.carbs + (Number(meal.carbs) || 0),
                 fat: acc.fat + (Number(meal.fat) || 0),
