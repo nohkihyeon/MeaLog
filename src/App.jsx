@@ -5,15 +5,17 @@ import MonthFeed from './components/MonthFeed';
 import { useMeals } from './hooks/useMeals';
 import { useSyncTriggers } from './hooks/useSync';
 
+function todayStr() {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function App() {
   // Default to today's date
-  const [currentDate, setCurrentDate] = useState(() => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  });
+  const [currentDate, setCurrentDate] = useState(todayStr);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -41,6 +43,7 @@ function App() {
         onAddMeal={addMeal}
         onDeleteMeal={deleteMeal}
         onUpdateMeal={updateMeal}
+        onGoToToday={() => setCurrentDate(todayStr())}
       />
     </Layout>
   )
