@@ -4,10 +4,12 @@
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 // 기본 모델 + 폴백. 첫 모델이 404/지원불가면 다음 모델로 재시도.
+// 기본값은 무료 한도가 가장 넉넉한 gemini-3.1-flash-lite.
+// 폴백은 모두 현재 제공 중인 모델로 구성 (2.0/1.5 flash는 종료되어 제거).
 const MODELS = [
-    import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash',
-    'gemini-2.0-flash',
-    'gemini-1.5-flash',
+    import.meta.env.VITE_GEMINI_MODEL || 'gemini-3.1-flash-lite',
+    'gemini-2.5-flash-lite',
+    'gemini-2.5-flash',
 ].filter((v, i, a) => v && a.indexOf(v) === i);
 
 const PROMPT = `너는 영양 분석 도우미야. 첨부된 음식 사진을 분석해.
