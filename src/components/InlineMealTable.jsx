@@ -128,7 +128,7 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
         focusTargetRef.current = nextId;
 
         // If this ID has already been promoted to "Real", we should treat this as an UPDATE, not an ADD.
-        // This captures the race condition where the second character of an IME composition arrives 
+        // This captures the race condition where the second character of an IME composition arrives
         // before the state update has fully cycled the component from Ghost -> Real.
         if (promotedIds.current.has(id)) {
             handleRowUpdate(id, updates);
@@ -257,6 +257,18 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(-1);
 
+    // --- IME composition handling (Safari fix) ---
+    // While a Hangul/IME composition is in progress, every intermediate keystroke still
+    // fires onChange. Previously each of those events was committed straight to parent
+    // state, which (for the "New" ghost row) promotes it into a real row and inserts a
+    // fresh ghost row below it — a DOM/list structure change happening WHILE Safari is
+    // mid-composition. Safari (unlike Chrome) tends to kill/garble the composition when
+    // the surrounding DOM is mutated like that, which shows up as dropped characters.
+    // Fix: buffer the value locally during composition and only commit to parent state
+    // once the composition session actually finishes.
+    const isComposingRef = useRef(false);
+    const [draftName, setDraftName] = useState(null);
+
     const filteredSuggestions = useMemo(() => {
         if (!meal.name || !showSuggestions) return [];
         const lowerName = meal.name.toLowerCase();
@@ -294,13 +306,27 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
             carbs: suggestion.carbs ?? '',
             fat: suggestion.fat ?? '',
             intake: suggestion.intake,
-            type: suggestion.type
+            // Keep the meal type already set on this row (defaults to the current date's
+            // next expected meal type) instead of overwriting it with the suggestion's
+            // historical type.
         });
         setShowSuggestions(false);
         setSelectedIndex(-1);
     };
 
+    const commitName = (val) => {
+        onUpdate(meal.id, { name: val });
+        setShowSuggestions(true);
+        setSelectedIndex(-1);
+    };
+
     const handleKeyDown = (e) => {
+        // Don't hijack Enter/Tab/Arrow keys while an IME composition is still active —
+        // those keys are often used to confirm/navigate the composition itself, not to
+        // pick a suggestion. (e.keyCode === 229 is the legacy signal older Safari/WebKit
+        // builds use instead of nativeEvent.isComposing.)
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+
         if (filteredSuggestions.length > 0) {
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
@@ -341,12 +367,24 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                 <div style={{ flex: 1, position: 'relative' }}>
                     <input
                         name="meal-name"
-                        value={meal.name}
+                        value={draftName !== null ? draftName : meal.name}
                         placeholder="New"
                         onChange={e => {
-                            onUpdate(meal.id, { name: e.target.value });
-                            setShowSuggestions(true);
-                            setSelectedIndex(-1);
+                            const val = e.target.value;
+                            if (isComposingRef.current) {
+                                // Mid-composition: only update the local draft so we don't
+                                // trigger a parent re-render/row-promotion until the
+                                // composition session finishes.
+                                setDraftName(val);
+                                return;
+                            }
+                            commitName(val);
+                        }}
+                        onCompositionStart={() => { isComposingRef.current = true; }}
+                        onCompositionEnd={e => {
+                            isComposingRef.current = false;
+                            setDraftName(null);
+                            commitName(e.target.value);
                         }}
                         onFocus={() => setShowSuggestions(true)}
                         onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
