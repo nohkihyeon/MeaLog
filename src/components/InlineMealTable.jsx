@@ -269,9 +269,16 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
     const isComposingRef = useRef(false);
     const [draftName, setDraftName] = useState(null);
 
+    // What the user is actually seeing in the input right now — the in-progress composition
+    // draft if there is one, otherwise the committed value from parent state. Suggestion
+    // matching should always run off this, NOT off meal.name, so the dropdown still updates
+    // instantly on every keystroke (e.g. after just "쉐") even though committing the value to
+    // parent state (row promotion / DB write) is deferred until the composition finishes.
+    const displayName = draftName !== null ? draftName : meal.name;
+
     const filteredSuggestions = useMemo(() => {
-        if (!meal.name || !showSuggestions) return [];
-        const lowerName = meal.name.toLowerCase();
+        if (!displayName || !showSuggestions) return [];
+        const lowerName = displayName.toLowerCase();
         return recommendations
             .filter(r => {
                 const rLower = r.name.toLowerCase();
@@ -289,7 +296,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                 return isMatch;
             })
             .slice(0, 5);
-    }, [recommendations, meal.name, showSuggestions, meal.calories, meal.protein, meal.carbs, meal.fat]);
+    }, [recommendations, displayName, showSuggestions, meal.calories, meal.protein, meal.carbs, meal.fat]);
 
     // 탄단지가 입력돼 있고 칼로리가 비어 있으면 4/4/9 환산값을 자동으로 보여준다
     const macroKcal = calcMacroKcal(meal);
@@ -367,15 +374,17 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                 <div style={{ flex: 1, position: 'relative' }}>
                     <input
                         name="meal-name"
-                        value={draftName !== null ? draftName : meal.name}
+                        value={displayName}
                         placeholder="New"
                         onChange={e => {
                             const val = e.target.value;
                             if (isComposingRef.current) {
-                                // Mid-composition: only update the local draft so we don't
-                                // trigger a parent re-render/row-promotion until the
-                                // composition session finishes.
+                                // Mid-composition: update the local draft (this alone drives
+                                // filteredSuggestions above, so the dropdown still reacts on
+                                // every keystroke) without touching parent state / triggering
+                                // row promotion until the composition session finishes.
                                 setDraftName(val);
+                                setSelectedIndex(-1);
                                 return;
                             }
                             commitName(val);
