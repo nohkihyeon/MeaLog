@@ -1,15 +1,38 @@
-import React from 'react'
-import { Menu } from 'lucide-react'
+import React, { useState } from 'react'
+import { Menu, BarChart2, CalendarDays } from 'lucide-react'
 
-const Layout = ({ children, sidebar, sidebarOpen, onToggleSidebar, onCloseSidebar }) => {
+const Layout = ({ children, sidebar, sidebarOpen, onToggleSidebar, onCloseSidebar, currentView, onChangeView, onTriggerEasterEgg }) => {
+    const [clickCount, setClickCount] = useState(0);
+    const [lastClickTime, setLastClickTime] = useState(0);
+
+    const handleLogoClick = () => {
+        const now = Date.now();
+        if (now - lastClickTime > 2000) {
+            setClickCount(1);
+        } else {
+            const next = clickCount + 1;
+            if (next >= 5) {
+                if (onTriggerEasterEgg) onTriggerEasterEgg();
+                setClickCount(0);
+            } else {
+                setClickCount(next);
+            }
+        }
+        setLastClickTime(now);
+    };
+
     return (
         <div className={`layout${sidebarOpen ? ' sidebar-open' : ''}`} style={{ display: 'flex', minHeight: '100vh' }}>
-            {/* 모바일 전용 상단 바 (데스크톱에서는 CSS로 숨김) */}
             <header className="mobile-header">
                 <button onClick={onToggleSidebar} aria-label="메뉴 열기" style={{ display: 'flex', padding: '0.5rem' }}>
                     <Menu size={22} />
                 </button>
-                <span style={{ fontWeight: 600 }}>🍎 MeaLog</span>
+                <span 
+                    onClick={handleLogoClick}
+                    style={{ fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                >
+                    🍎 MeaLog
+                </span>
             </header>
 
             <div className="sidebar-backdrop" onClick={onCloseSidebar} />

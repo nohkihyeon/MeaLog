@@ -186,3 +186,169 @@ input, select, textarea {
 .justify-between { justify-content: space-between; }
 .gap-2 { gap: 0.5rem; }
 .gap-4 { gap: 1rem; }
+
+/* Apple Style Dashboard CSS */
+.stats-dashboard {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 3rem 2rem;
+  animation: statsFadeIn 0.4s ease-out;
+}
+
+@keyframes statsFadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.stats-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.stats-title {
+  font-size: 3rem;
+  font-weight: 700;
+}
+
+/* Apple Segmented Control */
+.segmented-control {
+  display: flex;
+  background-color: var(--bg-secondary);
+  padding: 2px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+}
+
+.segmented-button {
+  padding: 0.4rem 1.2rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.segmented-button.active {
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Apple Cards */
+.apple-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.apple-card {
+  background-color: var(--bg-secondary);
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  padding: 1.5rem;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.apple-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.apple-card-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Custom SVG Chart Styles */
+.chart-container {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  margin-top: 1rem;
+}
+
+.chart-bar {
+  transition: height 0.4s ease, y 0.4s ease, fill 0.2s ease;
+  cursor: pointer;
+}
+
+.chart-bar:hover {
+  fill: #ff6b6b !important;
+}
+
+/* Rings */
+.ring-svg {
+  transform: rotate(-90deg);
+}
+
+.ring-bg {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.05);
+}
+
+.ring-progress {
+  fill: none;
+  stroke: var(--accent-primary);
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.5s ease;
+}
+
+/* Insights list */
+.insights-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.insight-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 12px;
+  background-color: var(--bg-primary);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.insight-icon {
+  margin-top: 0.15rem;
+}
+
+/* Confetti canvas */
+.confetti-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+@media (max-width: 768px) {
+  .stats-dashboard {
+    padding: 1.25rem 0.75rem 3rem;
+  }
+  .stats-title {
+    font-size: 2rem;
+  }
+  .apple-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,11 +1,29 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, FileText } from 'lucide-react';
+import { BarChart2, CalendarDays } from 'lucide-react';
 import SyncStatus from './SyncStatus';
 
-const Sidebar = ({ selectedDate, onSelectDate }) => {
+const Sidebar = ({ selectedDate, onSelectDate, currentView, onChangeView, onTriggerEasterEgg }) => {
     const currentYear = new Date(selectedDate).getFullYear();
     const months = Array.from({ length: 12 }, (_, i) => i + 1);
-    const [isYearOpen, setIsYearOpen] = useState(true);
+
+    const [clickCount, setClickCount] = useState(0);
+    const [lastClickTime, setLastClickTime] = useState(0);
+
+    const handleLogoClick = () => {
+        const now = Date.now();
+        if (now - lastClickTime > 2000) {
+            setClickCount(1);
+        } else {
+            const next = clickCount + 1;
+            if (next >= 5) {
+                if (onTriggerEasterEgg) onTriggerEasterEgg();
+                setClickCount(0);
+            } else {
+                setClickCount(next);
+            }
+        }
+        setLastClickTime(now);
+    };
 
     const handleMonthClick = (month) => {
         // Select the 1st day of the clicked month
@@ -15,11 +33,15 @@ const Sidebar = ({ selectedDate, onSelectDate }) => {
         const dayStr = '01';
 
         onSelectDate(`${yearStr}-${monthStr}-${dayStr}`);
+        if (onChangeView) onChangeView('feed');
     };
 
     return (
         <aside className="app-sidebar">
-            <div style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
+            <div 
+                onClick={handleLogoClick}
+                style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+            >
                 <div style={{
                     width: '20px', height: '20px', backgroundColor: '#EB5757', borderRadius: '4px',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px'
@@ -27,65 +49,96 @@ const Sidebar = ({ selectedDate, onSelectDate }) => {
                 <span>MeaLog</span>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0 0.5rem' }}>
-                <div style={{ marginBottom: '1rem' }}>
-                    <div style={{
-                        padding: '0.5rem',
-                        fontSize: '0.8rem',
+            {/* 메인 네비게이션 */}
+            <div style={{ padding: '0 0.5rem 1rem', display: 'flex', flexDirection: 'column', gap: '4px', borderBottom: '1px solid var(--border-color)' }}>
+                <div
+                    onClick={() => onChangeView('feed')}
+                    style={{
+                        padding: '0.5rem 0.75rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.6rem',
+                        cursor: 'pointer',
+                        borderRadius: '6px',
+                        fontSize: '0.875rem',
                         fontWeight: 600,
+                        backgroundColor: currentView === 'feed' ? 'rgba(255,255,255,0.05)' : 'transparent',
+                        color: currentView === 'feed' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                        transition: 'all 0.2s ease'
+                    }}
+                    onMouseOver={e => currentView !== 'feed' && (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.02)')}
+                    onMouseOut={e => currentView !== 'feed' && (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                    <CalendarDays size={15} color={currentView === 'feed' ? '#EB5757' : 'var(--text-secondary)'} />
+                    <span>식단 피드</span>
+                </div>
+                <div
+                    onClick={() => onChangeView('stats')}
+                    style={{
+                        padding: '0.5rem 0.75rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.6rem',
+                        cursor: 'pointer',
+                        borderRadius: '6px',
+                        fontSize: '0.875rem',
+                        fontWeight: 600,
+                        backgroundColor: currentView === 'stats' ? 'rgba(255,255,255,0.05)' : 'transparent',
+                        color: currentView === 'stats' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                        transition: 'all 0.2s ease'
+                    }}
+                    onMouseOver={e => currentView !== 'stats' && (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.02)')}
+                    onMouseOut={e => currentView !== 'stats' && (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                    <BarChart2 size={15} color={currentView === 'stats' ? '#27AE60' : 'var(--text-secondary)'} />
+                    <span>통계 리포트</span>
+                </div>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 0.5rem 0' }}>
+                <div style={{ marginBottom: '1.5rem' }}>
+                    <div style={{
+                        padding: '0.5rem 0.75rem',
+                        fontSize: '0.8rem',
+                        fontWeight: 700,
                         color: 'var(--text-secondary)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                        letterSpacing: '0.05em'
                     }}>
-                        <span>YEARS</span>
+                        2026 식단 내역
                     </div>
 
-                    <div>
-                        <div
-                            onClick={() => setIsYearOpen(!isYearOpen)}
-                            style={{
-                                padding: '0.5rem',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.5rem',
-                                cursor: 'pointer',
-                                color: 'var(--text-primary)',
-                                borderRadius: '4px',
-                                backgroundColor: 'var(--bg-tertiary)',
-                                userSelect: 'none'
-                            }}
-                        >
-                            {isYearOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                            <FileText size={14} />
-                            <span>2026 MeaLog</span>
-                        </div>
-
-                        {isYearOpen && (
-                            <div style={{ paddingLeft: '1.5rem', marginTop: '0.25rem' }}>
-                                {months.map(month => {
-                                    const isSelected = new Date(selectedDate).getMonth() + 1 === month;
-                                    return (
-                                        <div
-                                            key={month}
-                                            onClick={() => handleMonthClick(month)}
-                                            style={{
-                                                padding: '0.35rem 0.5rem',
-                                                fontSize: '0.9rem',
-                                                color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)',
-                                                cursor: 'pointer',
-                                                borderRadius: '4px',
-                                                backgroundColor: isSelected ? 'rgba(255,255,255,0.05)' : 'transparent',
-                                                marginBottom: '2px',
-                                                display: 'flex', alignItems: 'center', gap: '0.5rem'
-                                            }}
-                                            onMouseOver={e => !isSelected && (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.03)')}
-                                            onMouseOut={e => !isSelected && (e.currentTarget.style.backgroundColor = 'transparent')}
-                                        >
-                                            {month}월
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
+                    <div style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: 'repeat(3, 1fr)', 
+                        gap: '6px', 
+                        padding: '0.25rem 0.5rem' 
+                    }}>
+                        {months.map(month => {
+                            const isSelected = new Date(selectedDate).getMonth() + 1 === month;
+                            return (
+                                <div
+                                    key={month}
+                                    onClick={() => handleMonthClick(month)}
+                                    style={{
+                                        padding: '0.5rem 0.25rem',
+                                        fontSize: '0.8rem',
+                                        fontWeight: isSelected ? '600' : '400',
+                                        color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)',
+                                        textAlign: 'center',
+                                        cursor: 'pointer',
+                                        borderRadius: '8px',
+                                        backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                                        border: isSelected ? '1px solid var(--border-color)' : '1px solid transparent',
+                                        transition: 'all 0.15s ease',
+                                        userSelect: 'none'
+                                    }}
+                                    onMouseOver={e => !isSelected && (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.03)')}
+                                    onMouseOut={e => !isSelected && (e.currentTarget.style.backgroundColor = 'transparent')}
+                                >
+                                    {month}월
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             </div>
