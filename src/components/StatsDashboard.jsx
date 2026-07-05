@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { Flame, Target, TrendingUp, Sparkles, Trophy, ChevronRight, Apple } from 'lucide-react';
+import { Flame, Target, TrendingUp, Sparkles, Trophy, ChevronRight, Apple, Settings } from 'lucide-react';
 import { getEffectiveCalories } from '../utils/nutrition';
 
-// Custom SVG Bar Chart Component
-const BarChart = ({ data, activeUnit = 'kcal' }) => {
+// Custom SVG Bar Chart Component supporting multi-metric overlay
+const BarChart = ({ data, visibleMetrics }) => {
     const [hoveredIndex, setHoveredIndex] = useState(null);
     const [hoveredPos, setHoveredPos] = useState({ x: 0, y: 0 });
 
@@ -12,11 +12,43 @@ const BarChart = ({ data, activeUnit = 'kcal' }) => {
     const values = data.map(d => d.value);
     const maxVal = Math.max(...values, 1000); // Prevent division by zero and scale nicely
 
+    // Compute max macro value for right-hand Y axis scaling
+    const macroValues = data.flatMap(d => [
+        visibleMetrics.carbs ? d.avgCarbs : 0,
+        visibleMetrics.protein ? d.avgProtein : 0,
+        visibleMetrics.fat ? d.avgFat : 0
+    ]);
+    const maxMacro = Math.max(...macroValues, 100);
+
     const height = 160;
     const paddingLeft = 35;
-    const paddingRight = 15;
+    const paddingRight = 35; // Add space for right Y-axis
     const paddingTop = 20;
     const paddingBottom = 25;
+
+    const chartWidth = 500 - paddingLeft - paddingRight;
+    const barCount = data.length;
+    const colWidth = chartWidth / barCount;
+
+    // Helper to get X coordinate of a column center
+    const getColCenterX = (idx) => {
+        return paddingLeft + idx * colWidth + colWidth / 2;
+    };
+
+    // Helper to get Y coordinate for a macro value (right axis)
+    const getMacroY = (val) => {
+        const h = (val / maxMacro) * (height - paddingTop - paddingBottom);
+        return height - paddingBottom - h;
+    };
+
+    // Construct path for a macro line
+    const getLinePath = (key) => {
+        const points = data.map((d, idx) => {
+            const val = key === 'carbs' ? d.avgCarbs : key === 'protein' ? d.avgProtein : d.avgFat;
+            return `${getColCenterX(idx)},${getMacroY(val)}`;
+        });
+        return `M ${points.join(' L ')}`;
+    };
 
     return (
         <div style={{ position: 'relative', width: '100%', marginTop: '1.5rem' }}>
@@ -25,6 +57,7 @@ const BarChart = ({ data, activeUnit = 'kcal' }) => {
                 {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
                     const y = paddingTop + (1 - ratio) * (height - paddingTop - paddingBottom);
                     const val = Math.round(maxVal * ratio);
+                    const rightVal = Math.round(maxMacro * ratio);
                     return (
                         <g key={idx}>
                             <line 
@@ -36,58 +69,137 @@ const BarChart = ({ data, activeUnit = 'kcal' }) => {
                                 strokeWidth="1" 
                                 strokeDasharray="4 4" 
                             />
-                            <text 
-                                x={paddingLeft - 8} 
-                                y={y + 3} 
-                                fill="var(--text-tertiary)" 
-                                fontSize="9" 
-                                textAnchor="end"
-                            >
-                                {val}
-                            </text>
+                            {/* Left Y Axis (Calories) */}
+                            {visibleMetrics.calorie && (
+                                <text 
+                                    x={paddingLeft - 8} 
+                                    y={y + 3} 
+                                    fill="var(--text-tertiary)" 
+                                    fontSize="8" 
+                                    textAnchor="end"
+                                >
+                                    {val}
+                                </text>
+                            )}
+                            {/* Right Y Axis (Macros) */}
+                            {(visibleMetrics.carbs || visibleMetrics.protein || visibleMetrics.fat) && (
+                                <text 
+                                    x={500 - paddingRight + 8} 
+                                    y={y + 3} 
+                                    fill="var(--text-tertiary)" 
+                                    fontSize="8" 
+                                    textAnchor="start"
+                                >
+                                    {rightVal}g
+                                </text>
+                            )}
                         </g>
                     );
                 })}
 
-                {/* Bars */}
-                {data.map((item, idx) => {
-                    const barCount = data.length;
-                    const chartWidth = 500 - paddingLeft - paddingRight;
-                    const colWidth = chartWidth / barCount;
-                    const barWidth = Math.min(colWidth * 0.5, 24); // Limit max bar width
-                    
+                {/* Bars (Calories) */}
+                {visibleMetrics.calorie && data.map((item, idx) => {
+                    const barWidth = Math.min(colWidth * 0.45, 18);
                     const x = paddingLeft + idx * colWidth + (colWidth - barWidth) / 2;
-                    
                     const barHeight = (item.value / maxVal) * (height - paddingTop - paddingBottom);
                     const y = height - paddingBottom - barHeight;
+                    const isHovered = hoveredIndex === idx;
 
+                    return (
+                        <rect
+                            key={idx}
+                            x={x}
+                            y={y}
+                            width={barWidth}
+                            height={Math.max(barHeight, 2)}
+                            rx="3"
+                            fill={isHovered ? 'var(--accent-primary)' : 'rgba(235, 87, 87, 0.35)'}
+                            style={{ transition: 'all 0.2s ease', cursor: 'pointer' }}
+                            onMouseEnter={(e) => {
+                                setHoveredIndex(idx);
+                                setHoveredPos({
+                                    x: x + barWidth / 2,
+                                    y: y - 10
+                                });
+                            }}
+                            onMouseLeave={() => setHoveredIndex(null)}
+                        />
+                    );
+                })}
+
+                {/* Macro Lines */}
+                {visibleMetrics.carbs && (
+                    <path
+                        d={getLinePath('carbs')}
+                        fill="none"
+                        stroke="var(--accent-tertiary)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    />
+                )}
+                {visibleMetrics.protein && (
+                    <path
+                        d={getLinePath('protein')}
+                        fill="none"
+                        stroke="var(--accent-quaternary)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    />
+                )}
+                {visibleMetrics.fat && (
+                    <path
+                        d={getLinePath('fat')}
+                        fill="none"
+                        stroke="var(--accent-secondary)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    />
+                )}
+
+                {/* Markers & Interaction Triggers */}
+                {data.map((item, idx) => {
+                    const cx = getColCenterX(idx);
                     const isHovered = hoveredIndex === idx;
 
                     return (
                         <g key={idx}>
+                            {visibleMetrics.carbs && (
+                                <circle cx={cx} cy={getMacroY(item.avgCarbs)} r={isHovered ? 4 : 2} fill="var(--accent-tertiary)" />
+                            )}
+                            {visibleMetrics.protein && (
+                                <circle cx={cx} cy={getMacroY(item.avgProtein)} r={isHovered ? 4 : 2} fill="var(--accent-quaternary)" />
+                            )}
+                            {visibleMetrics.fat && (
+                                <circle cx={cx} cy={getMacroY(item.avgFat)} r={isHovered ? 4 : 2} fill="var(--accent-secondary)" />
+                            )}
+
+                            {/* Invisible full-height bar for hover triggers */}
                             <rect
-                                x={x}
-                                y={y}
-                                width={barWidth}
-                                height={Math.max(barHeight, 2)}
-                                rx="4"
-                                fill={isHovered ? 'var(--accent-primary)' : 'rgba(235, 87, 87, 0.6)'}
-                                style={{ transition: 'all 0.2s ease', cursor: 'pointer' }}
+                                x={paddingLeft + idx * colWidth}
+                                y={paddingTop}
+                                width={colWidth}
+                                height={height - paddingTop - paddingBottom}
+                                fill="transparent"
+                                style={{ cursor: 'pointer' }}
                                 onMouseEnter={(e) => {
                                     setHoveredIndex(idx);
                                     setHoveredPos({
-                                        x: x + barWidth / 2,
-                                        y: y - 10
+                                        x: cx,
+                                        y: paddingTop + 10
                                     });
                                 }}
                                 onMouseLeave={() => setHoveredIndex(null)}
                             />
+
                             {/* X Axis Labels */}
                             <text
-                                x={x + barWidth / 2}
+                                x={cx}
                                 y={height - 8}
                                 fill={isHovered ? 'var(--text-primary)' : 'var(--text-secondary)'}
-                                fontSize="10"
+                                fontSize="9"
                                 fontWeight={isHovered ? '600' : '400'}
                                 textAnchor="middle"
                                 style={{ transition: 'all 0.2s ease' }}
@@ -105,10 +217,10 @@ const BarChart = ({ data, activeUnit = 'kcal' }) => {
                     position: 'absolute',
                     left: `${(hoveredPos.x / 500) * 100}%`,
                     top: `${(hoveredPos.y / height) * 100}%`,
-                    transform: 'translate(-50%, -100%)',
+                    transform: 'translate(-50%, -105%)',
                     backgroundColor: 'var(--bg-tertiary)',
                     border: '1px solid var(--border-color)',
-                    padding: '0.4rem 0.6rem',
+                    padding: '0.5rem 0.75rem',
                     borderRadius: '8px',
                     fontSize: '0.75rem',
                     fontWeight: 600,
@@ -119,17 +231,45 @@ const BarChart = ({ data, activeUnit = 'kcal' }) => {
                     zIndex: 10,
                     display: 'flex',
                     flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '2px'
+                    gap: '4px'
                 }}>
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.65rem' }}>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.65rem', alignSelf: 'center', marginBottom: '2px' }}>
                         {data[hoveredIndex].periodLabel || data[hoveredIndex].label}
                     </span>
-                    <span style={{ color: 'var(--accent-primary)' }}>
-                        {Math.round(data[hoveredIndex].value).toLocaleString()} {activeUnit}
-                    </span>
+                    {visibleMetrics.calorie && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🔥 칼로리</span>
+                            <span style={{ color: 'var(--accent-primary)' }}>
+                                {Math.round(data[hoveredIndex].value).toLocaleString()} kcal
+                            </span>
+                        </div>
+                    )}
+                    {visibleMetrics.carbs && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🌾 탄수화물</span>
+                            <span style={{ color: 'var(--accent-tertiary)' }}>
+                                {Math.round(data[hoveredIndex].avgCarbs)}g
+                            </span>
+                        </div>
+                    )}
+                    {visibleMetrics.protein && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>💪 단백질</span>
+                            <span style={{ color: 'var(--accent-quaternary)' }}>
+                                {Math.round(data[hoveredIndex].avgProtein)}g
+                            </span>
+                        </div>
+                    )}
+                    {visibleMetrics.fat && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>💧 지방</span>
+                            <span style={{ color: 'var(--accent-secondary)' }}>
+                                {Math.round(data[hoveredIndex].avgFat)}g
+                            </span>
+                        </div>
+                    )}
                     {data[hoveredIndex].loggedDays !== undefined && (
-                        <span style={{ color: 'var(--text-tertiary)', fontSize: '0.65rem' }}>
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: '0.65rem', alignSelf: 'center', marginTop: '2px' }}>
                             기록일: {data[hoveredIndex].loggedDays}일
                         </span>
                     )}
@@ -188,10 +328,64 @@ const StatsDashboard = ({ meals }) => {
         return saved ? Number(saved) : 2000;
     });
 
+    const [ratioCarbs, setRatioCarbs] = useState(() => {
+        const saved = localStorage.getItem('mealog_ratio_carbs');
+        return saved ? Number(saved) : 4;
+    });
+    const [ratioProtein, setRatioProtein] = useState(() => {
+        const saved = localStorage.getItem('mealog_ratio_protein');
+        return saved ? Number(saved) : 4;
+    });
+    const [ratioFat, setRatioFat] = useState(() => {
+        const saved = localStorage.getItem('mealog_ratio_fat');
+        return saved ? Number(saved) : 2;
+    });
+
+    const [isEditingMacros, setIsEditingMacros] = useState(false);
+    const [editCalorie, setEditCalorie] = useState(targetCalorie);
+    const [editCarbs, setEditCarbs] = useState(ratioCarbs);
+    const [editProtein, setEditProtein] = useState(ratioProtein);
+    const [editFat, setEditFat] = useState(ratioFat);
+
+    const [visibleMetrics, setVisibleMetrics] = useState({
+        calorie: true,
+        carbs: false,
+        protein: false,
+        fat: false
+    });
+
     const handleTargetCalorieChange = (e) => {
         const val = Number(e.target.value) || 2000;
         setTargetCalorie(val);
+        setEditCalorie(val);
         localStorage.setItem('mealog_target_calorie', val);
+    };
+
+    const handleSaveMacros = () => {
+        const cal = Number(editCalorie) || 2000;
+        const c = Number(editCarbs) >= 0 ? Number(editCarbs) : 4;
+        const p = Number(editProtein) >= 0 ? Number(editProtein) : 4;
+        const f = Number(editFat) >= 0 ? Number(editFat) : 2;
+
+        setTargetCalorie(cal);
+        setRatioCarbs(c);
+        setRatioProtein(p);
+        setRatioFat(f);
+
+        localStorage.setItem('mealog_target_calorie', cal);
+        localStorage.setItem('mealog_ratio_carbs', c);
+        localStorage.setItem('mealog_ratio_protein', p);
+        localStorage.setItem('mealog_ratio_fat', f);
+
+        setIsEditingMacros(false);
+    };
+
+    const handleCancelMacros = () => {
+        setEditCalorie(targetCalorie);
+        setEditCarbs(ratioCarbs);
+        setEditProtein(ratioProtein);
+        setEditFat(ratioFat);
+        setIsEditingMacros(false);
     };
 
     // 1. Group all meals by YYYY-MM-DD
@@ -514,6 +708,26 @@ const StatsDashboard = ({ meals }) => {
 
     const caloriePercentage = targetCalorie > 0 ? (summary.avgCal / targetCalorie) * 100 : 0;
 
+    // Dynamic target macronutrient calculations (based on targetCalorie and custom ratios)
+    const ratioSum = ratioCarbs + ratioProtein + ratioFat || 10;
+    const targetCarbs = (targetCalorie * (ratioCarbs / ratioSum)) / 4;
+    const targetProtein = (targetCalorie * (ratioProtein / ratioSum)) / 4;
+    const targetFat = (targetCalorie * (ratioFat / ratioSum)) / 9;
+
+    const carbsRatio = targetCarbs > 0 ? ((summary.avgCarbs || 0) / targetCarbs) * 100 : 0;
+    const proteinRatio = targetProtein > 0 ? ((summary.avgProtein || 0) / targetProtein) * 100 : 0;
+    const fatRatio = targetFat > 0 ? ((summary.avgFat || 0) / targetFat) * 100 : 0;
+
+    const getMacroStatus = (ratio) => {
+        if (ratio < 80) return { label: '부족', color: '#F2C94C', bg: 'rgba(242, 201, 76, 0.1)' };
+        if (ratio > 120) return { label: '초과', color: '#EB5757', bg: 'rgba(235, 87, 87, 0.1)' };
+        return { label: '적정', color: '#27AE60', bg: 'rgba(39, 174, 96, 0.1)' };
+    };
+
+    const carbStatus = getMacroStatus(carbsRatio);
+    const proteinStatus = getMacroStatus(proteinRatio);
+    const fatStatus = getMacroStatus(fatRatio);
+
     return (
         <div className="stats-dashboard">
             <div className="stats-header">
@@ -617,103 +831,322 @@ const StatsDashboard = ({ meals }) => {
 
                         {/* Macronutrients Card */}
                         <div className="apple-card">
-                            <div className="apple-card-title">
-                                <Target size={18} color="var(--accent-secondary)" />
-                                <span>평균 탄단지 비율 ({summary.periodName})</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                <div className="apple-card-title" style={{ margin: 0 }}>
+                                    <Target size={18} color="var(--accent-secondary)" />
+                                    <span>평균 탄단지 비율 및 달성도 ({ratioCarbs}:{ratioProtein}:{ratioFat})</span>
+                                </div>
+                                {!isEditingMacros && (
+                                    <Settings 
+                                        size={16} 
+                                        color="var(--text-secondary)"
+                                        style={{ cursor: 'pointer', opacity: 0.7, transition: 'opacity 0.2s' }} 
+                                        onClick={() => {
+                                            setEditCalorie(targetCalorie);
+                                            setEditCarbs(ratioCarbs);
+                                            setEditProtein(ratioProtein);
+                                            setEditFat(ratioFat);
+                                            setIsEditingMacros(true);
+                                        }}
+                                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                                        onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}
+                                    />
+                                )}
                             </div>
 
-                            <div style={{ marginTop: '1.25rem' }}>
-                                {/* Horizontal Stacked Bar */}
-                                <div style={{
-                                    display: 'flex',
-                                    height: '24px',
-                                    borderRadius: '6px',
-                                    overflow: 'hidden',
-                                    backgroundColor: 'rgba(255,255,255,0.05)',
-                                    marginBottom: '1.5rem'
-                                }}>
-                                    <div 
-                                        style={{ 
-                                            width: `${carbPercent}%`, 
-                                            backgroundColor: 'var(--accent-tertiary)', 
-                                            transition: 'width 0.3s ease' 
-                                        }} 
-                                        title={`탄수화물: ${Math.round(carbPercent)}%`}
-                                    />
-                                    <div 
-                                        style={{ 
-                                            width: `${proteinPercent}%`, 
-                                            backgroundColor: 'var(--accent-quaternary)', 
-                                            transition: 'width 0.3s ease' 
-                                        }} 
-                                        title={`단백질: ${Math.round(proteinPercent)}%`}
-                                    />
-                                    <div 
-                                        style={{ 
-                                            width: `${fatPercent}%`, 
-                                            backgroundColor: 'var(--accent-secondary)', 
-                                            transition: 'width 0.3s ease' 
-                                        }} 
-                                        title={`지방: ${Math.round(fatPercent)}%`}
-                                    />
-                                </div>
+                            {isEditingMacros ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>목표 칼로리 (kcal)</label>
+                                        <input 
+                                            type="number" 
+                                            value={editCalorie} 
+                                            onChange={e => setEditCalorie(Number(e.target.value) || '')}
+                                            style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', fontSize: '0.85rem' }}
+                                        />
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <div style={{ flex: 1 }}>
+                                            <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>탄수화물 비율</label>
+                                            <input 
+                                                type="number" 
+                                                value={editCarbs} 
+                                                onChange={e => setEditCarbs(Number(e.target.value) || '')}
+                                                style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', fontSize: '0.85rem' }}
+                                            />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>단백질 비율</label>
+                                            <input 
+                                                type="number" 
+                                                value={editProtein} 
+                                                onChange={e => setEditProtein(Number(e.target.value) || '')}
+                                                style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', fontSize: '0.85rem' }}
+                                            />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>지방 비율</label>
+                                            <input 
+                                                type="number" 
+                                                value={editFat} 
+                                                onChange={e => setEditFat(Number(e.target.value) || '')}
+                                                style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', fontSize: '0.85rem' }}
+                                            />
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Live Percentage Display */}
+                                    {(() => {
+                                        const sum = (Number(editCarbs) || 0) + (Number(editProtein) || 0) + (Number(editFat) || 0) || 1;
+                                        const cPct = Math.round(((Number(editCarbs) || 0) / sum) * 100);
+                                        const pPct = Math.round(((Number(editProtein) || 0) / sum) * 100);
+                                        const fPct = Math.round(((Number(editFat) || 0) / sum) * 100);
+                                        return (
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: '2px', textAlign: 'center' }}>
+                                                실제 분배 비율: 탄수화물 {cPct}% | 단백질 {pPct}% | 지방 {fPct}%
+                                            </div>
+                                        );
+                                    })()}
 
-                                {/* Macro Details */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: 'var(--accent-tertiary)' }} />
-                                            <span style={{ fontSize: '0.875rem' }}>탄수화물</span>
-                                        </div>
-                                        <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>
-                                            {Math.round(summary.avgCarbs)}g 
-                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 400, marginLeft: '6px' }}>
-                                                ({Math.round(carbPercent)}%)
-                                            </span>
-                                        </span>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: 'var(--accent-quaternary)' }} />
-                                            <span style={{ fontSize: '0.875rem' }}>단백질</span>
-                                        </div>
-                                        <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>
-                                            {Math.round(summary.avgProtein)}g 
-                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 400, marginLeft: '6px' }}>
-                                                ({Math.round(proteinPercent)}%)
-                                            </span>
-                                        </span>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: 'var(--accent-secondary)' }} />
-                                            <span style={{ fontSize: '0.875rem' }}>지방</span>
-                                        </div>
-                                        <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>
-                                            {Math.round(summary.avgFat)}g 
-                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 400, marginLeft: '6px' }}>
-                                                ({Math.round(fatPercent)}%)
-                                            </span>
-                                        </span>
+                                    <div style={{ display: 'flex', gap: '8px', marginTop: '0.5rem' }}>
+                                        <button 
+                                            onClick={handleSaveMacros}
+                                            style={{
+                                                flex: 1, padding: '0.45rem', borderRadius: '6px', fontSize: '0.8rem',
+                                                fontWeight: 600, backgroundColor: 'var(--accent-primary)', color: '#fff',
+                                                border: 'none', cursor: 'pointer'
+                                            }}
+                                        >
+                                            저장
+                                        </button>
+                                        <button 
+                                            onClick={handleCancelMacros}
+                                            style={{
+                                                flex: 1, padding: '0.45rem', borderRadius: '6px', fontSize: '0.8rem',
+                                                fontWeight: 600, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                                                color: 'var(--text-primary)', cursor: 'pointer'
+                                            }}
+                                        >
+                                            취소
+                                        </button>
                                     </div>
                                 </div>
-                            </div>
+                            ) : (
+                                <>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '-0.5rem', marginBottom: '1rem' }}>
+                                        <span>실제 {Math.round(carbPercent/10)} : {Math.round(proteinPercent/10)} : {Math.round(fatPercent/10)}</span>
+                                        <span style={{ color: 'var(--text-tertiary)' }}>(목표 비율 {ratioCarbs} : {ratioProtein} : {ratioFat})</span>
+                                    </div>
+
+                                    <div style={{ marginTop: '0.5rem' }}>
+                                        {/* Horizontal Stacked Bar */}
+                                        <div style={{
+                                            display: 'flex',
+                                            height: '16px',
+                                            borderRadius: '4px',
+                                            overflow: 'hidden',
+                                            backgroundColor: 'rgba(255,255,255,0.05)',
+                                            marginBottom: '1.5rem'
+                                        }}>
+                                            <div 
+                                                style={{ 
+                                                    width: `${carbPercent}%`, 
+                                                    backgroundColor: 'var(--accent-tertiary)', 
+                                                    transition: 'width 0.3s ease' 
+                                                }} 
+                                                title={`탄수화물: ${Math.round(carbPercent)}%`}
+                                            />
+                                            <div 
+                                                style={{ 
+                                                    width: `${proteinPercent}%`, 
+                                                    backgroundColor: 'var(--accent-quaternary)', 
+                                                    transition: 'width 0.3s ease' 
+                                                }} 
+                                                title={`단백질: ${Math.round(proteinPercent)}%`}
+                                            />
+                                            <div 
+                                                style={{ 
+                                                    width: `${fatPercent}%`, 
+                                                    backgroundColor: 'var(--accent-secondary)', 
+                                                    transition: 'width 0.3s ease' 
+                                                }} 
+                                                title={`지방: ${Math.round(fatPercent)}%`}
+                                            />
+                                        </div>
+
+                                        {/* Macro Comparison List */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                            {/* Carbs */}
+                                            <div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--accent-tertiary)' }} />
+                                                        <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>탄수화물</span>
+                                                        <span style={{
+                                                            fontSize: '0.7rem',
+                                                            fontWeight: 700,
+                                                            padding: '2px 6px',
+                                                            borderRadius: '4px',
+                                                            backgroundColor: carbStatus.bg,
+                                                            color: carbStatus.color
+                                                        }}>
+                                                            {carbStatus.label}
+                                                        </span>
+                                                    </div>
+                                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                                        <strong style={{ color: 'var(--text-primary)' }}>{Math.round(summary.avgCarbs)}g</strong> / {Math.round(targetCarbs)}g ({Math.round(carbsRatio)}%)
+                                                    </span>
+                                                </div>
+                                                <div style={{ height: '6px', borderRadius: '3px', backgroundColor: 'rgba(255,255,255,0.05)', overflow: 'hidden', marginTop: '0.4rem' }}>
+                                                    <div style={{
+                                                        width: `${Math.min(carbsRatio, 100)}%`,
+                                                        height: '100%',
+                                                        backgroundColor: carbStatus.color,
+                                                        borderRadius: '3px',
+                                                        transition: 'width 0.3s ease'
+                                                    }} />
+                                                </div>
+                                            </div>
+
+                                            {/* Protein */}
+                                            <div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--accent-quaternary)' }} />
+                                                        <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>단백질</span>
+                                                        <span style={{
+                                                            fontSize: '0.7rem',
+                                                            fontWeight: 700,
+                                                            padding: '2px 6px',
+                                                            borderRadius: '4px',
+                                                            backgroundColor: proteinStatus.bg,
+                                                            color: proteinStatus.color
+                                                        }}>
+                                                            {proteinStatus.label}
+                                                        </span>
+                                                    </div>
+                                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                                        <strong style={{ color: 'var(--text-primary)' }}>{Math.round(summary.avgProtein)}g</strong> / {Math.round(targetProtein)}g ({Math.round(proteinRatio)}%)
+                                                    </span>
+                                                </div>
+                                                <div style={{ height: '6px', borderRadius: '3px', backgroundColor: 'rgba(255,255,255,0.05)', overflow: 'hidden', marginTop: '0.4rem' }}>
+                                                    <div style={{
+                                                        width: `${Math.min(proteinRatio, 100)}%`,
+                                                        height: '100%',
+                                                        backgroundColor: proteinStatus.color,
+                                                        borderRadius: '3px',
+                                                        transition: 'width 0.3s ease'
+                                                    }} />
+                                                </div>
+                                            </div>
+
+                                            {/* Fat */}
+                                            <div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--accent-secondary)' }} />
+                                                        <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>지방</span>
+                                                        <span style={{
+                                                            fontSize: '0.7rem',
+                                                            fontWeight: 700,
+                                                            padding: '2px 6px',
+                                                            borderRadius: '4px',
+                                                            backgroundColor: fatStatus.bg,
+                                                            color: fatStatus.color
+                                                        }}>
+                                                            {fatStatus.label}
+                                                        </span>
+                                                    </div>
+                                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                                        <strong style={{ color: 'var(--text-primary)' }}>{Math.round(summary.avgFat)}g</strong> / {Math.round(targetFat)}g ({Math.round(fatRatio)}%)
+                                                    </span>
+                                                </div>
+                                                <div style={{ height: '6px', borderRadius: '3px', backgroundColor: 'rgba(255,255,255,0.05)', overflow: 'hidden', marginTop: '0.4rem' }}>
+                                                    <div style={{
+                                                        width: `${Math.min(fatRatio, 100)}%`,
+                                                        height: '100%',
+                                                        backgroundColor: fatStatus.color,
+                                                        borderRadius: '3px',
+                                                        transition: 'width 0.3s ease'
+                                                    }} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                     </div>
 
                     {/* Chart Card */}
                     <div className="apple-card" style={{ marginBottom: '2rem' }}>
-                        <div className="apple-card-title">
-                            <TrendingUp size={18} color="var(--accent-primary)" />
-                            <span>칼로리 추세 리포트</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            <div>
+                                <div className="apple-card-title" style={{ marginBottom: '0.25rem' }}>
+                                    <TrendingUp size={18} color="var(--accent-primary)" />
+                                    <span>칼로리 & 영양소 추세 리포트</span>
+                                </div>
+                                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    {viewType === 'week' ? '최근 8주간의 주차별 일평균 섭취량' : 
+                                     viewType === 'month' ? '최근 6개월간의 월별 일평균 섭취량' : 
+                                     '연도별 일평균 섭취량'}
+                                </p>
+                            </div>
+                            
+                            {/* Toggle pills */}
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                <button 
+                                    onClick={() => setVisibleMetrics(prev => ({ ...prev, calorie: !prev.calorie }))}
+                                    style={{
+                                        padding: '0.3rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600,
+                                        border: '1px solid var(--border-color)', cursor: 'pointer',
+                                        backgroundColor: visibleMetrics.calorie ? 'rgba(235, 87, 87, 0.15)' : 'transparent',
+                                        color: visibleMetrics.calorie ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    칼로리
+                                </button>
+                                <button 
+                                    onClick={() => setVisibleMetrics(prev => ({ ...prev, carbs: !prev.carbs }))}
+                                    style={{
+                                        padding: '0.3rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600,
+                                        border: '1px solid var(--border-color)', cursor: 'pointer',
+                                        backgroundColor: visibleMetrics.carbs ? 'rgba(242, 201, 76, 0.15)' : 'transparent',
+                                        color: visibleMetrics.carbs ? 'var(--accent-tertiary)' : 'var(--text-secondary)',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    탄수화물
+                                </button>
+                                <button 
+                                    onClick={() => setVisibleMetrics(prev => ({ ...prev, protein: !prev.protein }))}
+                                    style={{
+                                        padding: '0.3rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600,
+                                        border: '1px solid var(--border-color)', cursor: 'pointer',
+                                        backgroundColor: visibleMetrics.protein ? 'rgba(39, 174, 96, 0.15)' : 'transparent',
+                                        color: visibleMetrics.protein ? 'var(--accent-quaternary)' : 'var(--text-secondary)',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    단백질
+                                </button>
+                                <button 
+                                    onClick={() => setVisibleMetrics(prev => ({ ...prev, fat: !prev.fat }))}
+                                    style={{
+                                        padding: '0.3rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600,
+                                        border: '1px solid var(--border-color)', cursor: 'pointer',
+                                        backgroundColor: visibleMetrics.fat ? 'rgba(45, 156, 219, 0.15)' : 'transparent',
+                                        color: visibleMetrics.fat ? 'var(--accent-secondary)' : 'var(--text-secondary)',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    지방
+                                </button>
+                            </div>
                         </div>
-                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '-0.5rem' }}>
-                            {viewType === 'week' ? '최근 8주간의 주차별 일평균 섭취량' : 
-                             viewType === 'month' ? '최근 6개월간의 월별 일평균 섭취량' : 
-                             '연도별 일평균 섭취량'}
-                        </p>
-                        <BarChart data={chartData} />
+                        <BarChart data={chartData} visibleMetrics={visibleMetrics} />
                     </div>
 
                     {/* Insights Card */}
