@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Plus } from 'lucide-react';
+import { calcMacroKcal } from '../utils/nutrition';
 
 const MEAL_TYPES = [
     { id: 'breakfast', label: 'Breakfast', color: 'var(--accent-secondary)' },
@@ -21,7 +22,7 @@ const AddMealModal = ({ isOpen, onClose, onSave, date }) => {
     if (!isOpen) return null;
 
     // 탄단지 4/4/9 환산 칼로리 — 칼로리 미입력 시 placeholder로 제안
-    const macroKcal = (Number(formData.carbs) || 0) * 4 + (Number(formData.protein) || 0) * 4 + (Number(formData.fat) || 0) * 9;
+    const macroKcal = calcMacroKcal(formData);
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -80,7 +81,7 @@ const AddMealModal = ({ isOpen, onClose, onSave, date }) => {
                         <div>
                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Calories (kcal)</label>
                             <input
-                                type="number"
+                                type="number" inputMode="decimal"
                                 required
                                 style={{ width: '100%', padding: '0.75rem', fontSize: '1rem' }}
                                 value={formData.calories}
@@ -91,7 +92,7 @@ const AddMealModal = ({ isOpen, onClose, onSave, date }) => {
                         <div>
                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Protein (g)</label>
                             <input
-                                type="number"
+                                type="number" inputMode="decimal"
                                 required
                                 style={{ width: '100%', padding: '0.75rem', fontSize: '1rem' }}
                                 value={formData.protein}
@@ -102,7 +103,7 @@ const AddMealModal = ({ isOpen, onClose, onSave, date }) => {
                         <div>
                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Carbs (g)</label>
                             <input
-                                type="number"
+                                type="number" inputMode="decimal"
                                 style={{ width: '100%', padding: '0.75rem', fontSize: '1rem' }}
                                 value={formData.carbs}
                                 onChange={e => setFormData({ ...formData, carbs: e.target.value })}
@@ -112,7 +113,7 @@ const AddMealModal = ({ isOpen, onClose, onSave, date }) => {
                         <div>
                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Fat (g)</label>
                             <input
-                                type="number"
+                                type="number" inputMode="decimal"
                                 style={{ width: '100%', padding: '0.75rem', fontSize: '1rem' }}
                                 value={formData.fat}
                                 onChange={e => setFormData({ ...formData, fat: e.target.value })}
@@ -171,3 +172,4 @@ const AddMealModal = ({ isOpen, onClose, onSave, date }) => {
 };
 
 export default AddMealModal;
+                             

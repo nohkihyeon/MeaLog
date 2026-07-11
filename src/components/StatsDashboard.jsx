@@ -859,7 +859,8 @@ const StatsDashboard = ({ meals }) => {
                                     <div>
                                         <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>목표 칼로리 (kcal)</label>
                                         <input 
-                                            type="number" 
+                                            type="number"
+                                            inputMode="decimal"
                                             value={editCalorie} 
                                             onChange={e => setEditCalorie(Number(e.target.value) || '')}
                                             style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', fontSize: '0.85rem' }}
@@ -869,7 +870,8 @@ const StatsDashboard = ({ meals }) => {
                                         <div style={{ flex: 1 }}>
                                             <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>탄수화물 비율</label>
                                             <input 
-                                                type="number" 
+                                                type="number"
+                                            inputMode="decimal"
                                                 value={editCarbs} 
                                                 onChange={e => setEditCarbs(Number(e.target.value) || '')}
                                                 style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', fontSize: '0.85rem' }}
@@ -878,7 +880,8 @@ const StatsDashboard = ({ meals }) => {
                                         <div style={{ flex: 1 }}>
                                             <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>단백질 비율</label>
                                             <input 
-                                                type="number" 
+                                                type="number"
+                                            inputMode="decimal"
                                                 value={editProtein} 
                                                 onChange={e => setEditProtein(Number(e.target.value) || '')}
                                                 style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', fontSize: '0.85rem' }}
@@ -887,7 +890,8 @@ const StatsDashboard = ({ meals }) => {
                                         <div style={{ flex: 1 }}>
                                             <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>지방 비율</label>
                                             <input 
-                                                type="number" 
+                                                type="number"
+                                            inputMode="decimal"
                                                 value={editFat} 
                                                 onChange={e => setEditFat(Number(e.target.value) || '')}
                                                 style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', fontSize: '0.85rem' }}

@@ -459,6 +459,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
             <div style={{ paddingRight: '1rem', position: 'relative' }}>
                 <input
                     type="number"
+                    inputMode="decimal"
                     value={meal.calories}
                     onChange={e => onUpdate(meal.id, { calories: e.target.value })}
                     title={macroKcal > 0 ? `탄단지 환산 약 ${macroKcal}kcal (직접 입력하면 그 값이 우선)` : undefined}
@@ -490,6 +491,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
             <div style={{ paddingRight: '1rem' }}>
                 <input
                     type="number"
+                    inputMode="decimal"
                     value={meal.protein}
                     onChange={e => onUpdate(meal.id, { protein: e.target.value })}
                     style={{ border: 'none', padding: '0', width: '100%', textAlign: 'right', outline: 'none' }}
@@ -499,6 +501,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
             <div style={{ paddingRight: '1rem' }}>
                 <input
                     type="number"
+                    inputMode="decimal"
                     value={meal.carbs ?? ''}
                     onChange={e => onUpdate(meal.id, { carbs: e.target.value })}
                     style={{ border: 'none', padding: '0', width: '100%', textAlign: 'right', outline: 'none' }}
@@ -508,6 +511,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
             <div style={{ paddingRight: '1rem' }}>
                 <input
                     type="number"
+                    inputMode="decimal"
                     value={meal.fat ?? ''}
                     onChange={e => onUpdate(meal.id, { fat: e.target.value })}
                     style={{ border: 'none', padding: '0', width: '100%', textAlign: 'right', outline: 'none' }}
@@ -517,6 +521,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
             <div style={{ paddingRight: '1rem' }}>
                 <input
                     type="number"
+                    inputMode="decimal"
                     value={meal.intake || ''}
                     onChange={e => onUpdate(meal.id, { intake: e.target.value })}
                     placeholder=""

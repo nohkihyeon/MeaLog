@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { useEffect } from 'react';
 import { scheduleSync } from '../sync';
-import { getEffectiveCalories } from '../utils/nutrition';
+import { getEffectiveCalories, round1 } from '../utils/nutrition';
 
 const STORAGE_KEY = 'eating_record_meals';
 
@@ -76,7 +76,7 @@ export const useMeals = () => {
 
     const getStatsByDate = (dateStr) => {
         const daysMeals = getMealsByDate(dateStr);
-        return daysMeals.reduce(
+        const sums = daysMeals.reduce(
             (acc, meal) => ({
                 calories: acc.calories + getEffectiveCalories(meal),
                 protein: acc.protein + (Number(meal.protein) || 0),
@@ -85,6 +85,13 @@ export const useMeals = () => {
             }),
             { calories: 0, protein: 0, carbs: 0, fat: 0 }
         );
+        // 부동소수점 오차 없이 소수 첫째 자리까지 반올림해서 반환
+        return {
+            calories: round1(sums.calories),
+            protein: round1(sums.protein),
+            carbs: round1(sums.carbs),
+            fat: round1(sums.fat),
+        };
     };
 
     return {

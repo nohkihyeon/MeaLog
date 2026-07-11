@@ -292,7 +292,7 @@ const PhotoMealModal = ({ isOpen, onClose, onConfirm, date }) => {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                                 <button onClick={() => setPeople((p) => Math.max(1, p - 1))} style={stepBtn} aria-label="인원 감소"><Minus size={16} /></button>
                                 <input
-                                    type="number" min="1" value={people}
+                                    type="number" inputMode="numeric" min="1" value={people}
                                     onChange={(e) => setPeople(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
                                     style={{ ...numStyle, width: '60px', textAlign: 'center' }}
                                 />
@@ -347,8 +347,9 @@ const PhotoMealModal = ({ isOpen, onClose, onConfirm, date }) => {
                                             <div key={key}>
                                                 <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '0.2rem', textAlign: 'center' }}>{lbl}</div>
                                                 <input
-                                                    type="number" min="0" value={it[key]}
-                                                    onChange={(e) => updateItem(idx, key, Math.max(0, Number(e.target.value) || 0))}
+                                                    type="number" inputMode="decimal" min="0" value={it[key]}
+                                                    onChange={(e) => updateItem(idx, key, e.target.value)}
+                                                    onBlur={(e) => updateItem(idx, key, Math.max(0, Number(e.target.value) || 0))}
                                                     style={{ ...numStyle, textAlign: 'center', padding: '0.35rem 0.2rem' }}
                                                 />
                                             </div>

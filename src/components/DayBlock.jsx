@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Camera } from 'lucide-react';
 import InlineMealTable from './InlineMealTable';
 import PhotoMealModal from './PhotoMealModal';
-import { getEffectiveCalories } from '../utils/nutrition';
+import { getEffectiveCalories, round1 } from '../utils/nutrition';
 
 const DayBlock = ({ date, meals, allMeals, onUpdateMeal, onDeleteMeal, onAddMeal }) => {
     const dayNum = new Date(date).getDate();
@@ -58,10 +58,10 @@ const DayBlock = ({ date, meals, allMeals, onUpdateMeal, onDeleteMeal, onAddMeal
                 fontWeight: 500,
                 gap: '0.5rem 2rem'
             }}>
-                <span>칼로리 합 {sums.calories} kcal</span>
-                <span>단백질 합 {sums.protein} g</span>
-                <span>탄수 합 {sums.carbs} g</span>
-                <span>지방 합 {sums.fat} g</span>
+                <span>칼로리 합 {round1(sums.calories)} kcal</span>
+                <span>단백질 합 {round1(sums.protein)} g</span>
+                <span>탄수 합 {round1(sums.carbs)} g</span>
+                <span>지방 합 {round1(sums.fat)} g</span>
             </div>
 
             <PhotoMealModal
@@ -70,8 +70,4 @@ const DayBlock = ({ date, meals, allMeals, onUpdateMeal, onDeleteMeal, onAddMeal
                 onConfirm={handlePhotoConfirm}
                 date={date}
             />
-        </div>
-    );
-};
-
-export default DayBlock;
+        </d
