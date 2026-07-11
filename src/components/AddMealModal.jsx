@@ -172,4 +172,3 @@ const AddMealModal = ({ isOpen, onClose, onSave, date }) => {
 };
 
 export default AddMealModal;
-                             

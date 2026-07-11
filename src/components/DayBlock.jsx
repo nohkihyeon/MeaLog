@@ -70,4 +70,8 @@ const DayBlock = ({ date, meals, allMeals, onUpdateMeal, onDeleteMeal, onAddMeal
                 onConfirm={handlePhotoConfirm}
                 date={date}
             />
-        </d
+        </div>
+    );
+};
+
+export default DayBlock;
