@@ -54,3 +54,24 @@ create policy "own rows" on meals
   with check (auth.uid() = user_id);
 
 create index meals_pull_cursor on meals (user_id, server_updated_at);
+
+-- 일별 소모 칼로리 (건강 앱 데이터 업로드용, 앱에서는 읽기 전용으로 pull만 한다)
+create table public.daily_energy (
+    id uuid default gen_random_uuid() primary key,
+    user_id uuid references auth.users(id) on delete cascade not null,
+    date date not null,
+    active_calories numeric default 0 not null,
+    basal_calories numeric default 0 not null,
+    updated_at timestamptz default timezone('utc'::text, now()) not null,
+
+    -- 하루에 한 개의 유저 기록만 보장 (중복 방지 및 Upsert 처리용)
+    constraint daily_energy_user_date_key unique (user_id, date)
+);
+
+alter table public.daily_energy enable row level security;
+
+create policy "Users can manage their own daily energy"
+on public.daily_energy
+for all
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);

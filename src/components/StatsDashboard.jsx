@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Flame, Target, TrendingUp, Sparkles, Trophy, ChevronRight, Apple, Settings } from 'lucide-react';
 import { getEffectiveCalories } from '../utils/nutrition';
+import CalorieBalanceCard from './CalorieBalanceCard';
 
 // Custom SVG Bar Chart Component supporting multi-metric overlay
 const BarChart = ({ data, visibleMetrics }) => {
@@ -9,8 +10,14 @@ const BarChart = ({ data, visibleMetrics }) => {
 
     if (!data || data.length === 0) return null;
 
-    const values = data.map(d => d.value);
+    // 좌측 축(kcal): 섭취 막대 + 소모/활동 라인이 함께 쓴다
+    const values = data.flatMap(d => [
+        visibleMetrics.calorie ? d.value : 0,
+        visibleMetrics.burn && d.burn != null ? d.burn : 0,
+        visibleMetrics.active && d.active != null ? d.active : 0,
+    ]);
     const maxVal = Math.max(...values, 1000); // Prevent division by zero and scale nicely
+    const showKcalAxis = visibleMetrics.calorie || visibleMetrics.burn || visibleMetrics.active;
 
     // Compute max macro value for right-hand Y axis scaling
     const macroValues = data.flatMap(d => [
@@ -50,6 +57,29 @@ const BarChart = ({ data, visibleMetrics }) => {
         return `M ${points.join(' L ')}`;
     };
 
+    // 좌측 kcal 축용 Y 좌표 (소모/활동 라인)
+    const getKcalY = (val) => {
+        const h = (val / maxVal) * (height - paddingTop - paddingBottom);
+        return height - paddingBottom - h;
+    };
+
+    // 소모/활동 라인 path — 데이터 없는 구간(null)은 선을 끊는다
+    const getKcalLinePath = (key) => {
+        let path = '';
+        let pen = false;
+        data.forEach((d, idx) => {
+            const val = d[key];
+            if (val == null) { pen = false; return; }
+            const pt = `${getColCenterX(idx)},${getKcalY(val)}`;
+            path += pen ? ` L ${pt}` : ` M ${pt}`;
+            pen = true;
+        });
+        return path;
+    };
+
+    const BURN_COLOR = '#9B51E0';
+    const ACTIVE_COLOR = '#F2994A';
+
     return (
         <div style={{ position: 'relative', width: '100%', marginTop: '1.5rem' }}>
             <svg viewBox={`0 0 500 ${height}`} width="100%" height="100%" style={{ overflow: 'visible' }}>
@@ -69,8 +99,8 @@ const BarChart = ({ data, visibleMetrics }) => {
                                 strokeWidth="1" 
                                 strokeDasharray="4 4" 
                             />
-                            {/* Left Y Axis (Calories) */}
-                            {visibleMetrics.calorie && (
+                            {/* Left Y Axis (kcal) */}
+                            {showKcalAxis && (
                                 <text 
                                     x={paddingLeft - 8} 
                                     y={y + 3} 
@@ -127,6 +157,28 @@ const BarChart = ({ data, visibleMetrics }) => {
                     );
                 })}
 
+                {/* Burn / Active Lines (좌측 kcal 축) */}
+                {visibleMetrics.burn && (
+                    <path
+                        d={getKcalLinePath('burn')}
+                        fill="none"
+                        stroke={BURN_COLOR}
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    />
+                )}
+                {visibleMetrics.active && (
+                    <path
+                        d={getKcalLinePath('active')}
+                        fill="none"
+                        stroke={ACTIVE_COLOR}
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    />
+                )}
+
                 {/* Macro Lines */}
                 {visibleMetrics.carbs && (
                     <path
@@ -166,6 +218,12 @@ const BarChart = ({ data, visibleMetrics }) => {
 
                     return (
                         <g key={idx}>
+                            {visibleMetrics.burn && item.burn != null && (
+                                <circle cx={cx} cy={getKcalY(item.burn)} r={isHovered ? 4 : 2} fill={BURN_COLOR} />
+                            )}
+                            {visibleMetrics.active && item.active != null && (
+                                <circle cx={cx} cy={getKcalY(item.active)} r={isHovered ? 4 : 2} fill={ACTIVE_COLOR} />
+                            )}
                             {visibleMetrics.carbs && (
                                 <circle cx={cx} cy={getMacroY(item.avgCarbs)} r={isHovered ? 4 : 2} fill="var(--accent-tertiary)" />
                             )}
@@ -241,6 +299,22 @@ const BarChart = ({ data, visibleMetrics }) => {
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🔥 칼로리</span>
                             <span style={{ color: 'var(--accent-primary)' }}>
                                 {Math.round(data[hoveredIndex].value).toLocaleString()} kcal
+                            </span>
+                        </div>
+                    )}
+                    {visibleMetrics.burn && data[hoveredIndex].burn != null && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>⚡ 소모</span>
+                            <span style={{ color: '#9B51E0' }}>
+                                {Math.round(data[hoveredIndex].burn).toLocaleString()} kcal
+                            </span>
+                        </div>
+                    )}
+                    {visibleMetrics.active && data[hoveredIndex].active != null && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🏃 활동</span>
+                            <span style={{ color: '#F2994A' }}>
+                                {Math.round(data[hoveredIndex].active).toLocaleString()} kcal
                             </span>
                         </div>
                     )}
@@ -321,11 +395,17 @@ const ActivityRing = ({ percentage, size = 100, strokeWidth = 10 }) => {
     );
 };
 
-const StatsDashboard = ({ meals }) => {
-    const [viewType, setViewType] = useState('week'); // 'week' | 'month' | 'year'
+const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
+    const [viewType, setViewType] = useState('week'); // 'day' | 'week' | 'month' | 'year'
     const [targetCalorie, setTargetCalorie] = useState(() => {
         const saved = localStorage.getItem('mealog_target_calorie');
         return saved ? Number(saved) : 2000;
+    });
+
+    // 수동 기초대사량 (칼로리 밸런스 카드의 설정과 공유)
+    const [manualBmr, setManualBmr] = useState(() => {
+        const saved = localStorage.getItem('mealog_manual_bmr');
+        return saved !== null ? Number(saved) : 1600;
     });
 
     const [ratioCarbs, setRatioCarbs] = useState(() => {
@@ -351,7 +431,9 @@ const StatsDashboard = ({ meals }) => {
         calorie: true,
         carbs: false,
         protein: false,
-        fat: false
+        fat: false,
+        burn: false,
+        active: false
     });
 
     const handleTargetCalorieChange = (e) => {
@@ -406,13 +488,73 @@ const StatsDashboard = ({ meals }) => {
         return stats;
     }, [meals]);
 
-    // 2. Generate stats based on viewType (week, month, year)
+    // 1.5. 일별 소모/활동 칼로리 맵 (기초값 없으면 수동 BMR 폴백)
+    const energyByDate = useMemo(() => {
+        const map = {};
+        dailyEnergy.forEach(e => {
+            const basal = e.basal > 0 ? e.basal : manualBmr;
+            map[e.date] = { burn: basal + e.active, active: e.active };
+        });
+        return map;
+    }, [dailyEnergy, manualBmr]);
+
+    // 2. Generate stats based on viewType (day, week, month, year)
     const reportData = useMemo(() => {
         if (meals.length === 0) return { chartData: [], summary: {} };
 
         const today = new Date();
 
-        if (viewType === 'week') {
+        if (viewType === 'day') {
+            // 최근 14일, 하루 단위
+            const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+            const chartData = [];
+            let sumCal = 0, sumP = 0, sumC = 0, sumF = 0, logged = 0;
+
+            for (let i = 13; i >= 0; i--) {
+                const d = new Date(today);
+                d.setDate(today.getDate() - i);
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                const key = `${yyyy}-${mm}-${dd}`;
+
+                const day = dailyData[key];
+                const energy = energyByDate[key];
+
+                if (day) {
+                    sumCal += day.calories;
+                    sumP += day.protein;
+                    sumC += day.carbs;
+                    sumF += day.fat;
+                    logged += 1;
+                }
+
+                chartData.push({
+                    label: i === 0 ? '오늘' : `${d.getMonth() + 1}/${d.getDate()}`,
+                    periodLabel: `${yyyy}.${d.getMonth() + 1}.${d.getDate()} (${dayNames[d.getDay()]})`,
+                    value: day ? day.calories : 0,
+                    avgProtein: day ? day.protein : 0,
+                    avgCarbs: day ? day.carbs : 0,
+                    avgFat: day ? day.fat : 0,
+                    burn: energy ? energy.burn : null,
+                    active: energy ? energy.active : null,
+                });
+            }
+
+            return {
+                chartData,
+                summary: {
+                    avgCal: logged > 0 ? sumCal / logged : 0,
+                    avgProtein: logged > 0 ? sumP / logged : 0,
+                    avgCarbs: logged > 0 ? sumC / logged : 0,
+                    avgFat: logged > 0 ? sumF / logged : 0,
+                    loggedDays: logged,
+                    totalDays: 14,
+                    periodName: '최근 14일'
+                }
+            };
+
+        } else if (viewType === 'week') {
             // Helper: Find Monday of a given date
             const getMonday = (d) => {
                 const date = new Date(d);
@@ -435,6 +577,8 @@ const StatsDashboard = ({ meals }) => {
 
                 let totalCal = 0, totalP = 0, totalC = 0, totalF = 0, loggedDays = 0;
 
+                let totalBurn = 0, totalActive = 0, energyDays = 0;
+
                 // Scan days in the week
                 for (let d = new Date(monday); d <= sunday; d.setDate(d.getDate() + 1)) {
                     const yyyy = d.getFullYear();
@@ -448,6 +592,11 @@ const StatsDashboard = ({ meals }) => {
                         totalC += dailyData[key].carbs;
                         totalF += dailyData[key].fat;
                         loggedDays += 1;
+                    }
+                    if (energyByDate[key]) {
+                        totalBurn += energyByDate[key].burn;
+                        totalActive += energyByDate[key].active;
+                        energyDays += 1;
                     }
                 }
 
@@ -466,6 +615,8 @@ const StatsDashboard = ({ meals }) => {
                     avgProtein: avgP,
                     avgCarbs: avgC,
                     avgFat: avgF,
+                    burn: energyDays > 0 ? totalBurn / energyDays : null,
+                    active: energyDays > 0 ? totalActive / energyDays : null,
                     loggedDays,
                     totalDays: 7
                 });
@@ -498,6 +649,8 @@ const StatsDashboard = ({ meals }) => {
 
                 let totalCal = 0, totalP = 0, totalC = 0, totalF = 0, loggedDays = 0;
 
+                let totalBurn = 0, totalActive = 0, energyDays = 0;
+
                 for (let dayNum = 1; dayNum <= numDays; dayNum++) {
                     const mm = String(month + 1).padStart(2, '0');
                     const dd = String(dayNum).padStart(2, '0');
@@ -509,6 +662,11 @@ const StatsDashboard = ({ meals }) => {
                         totalC += dailyData[key].carbs;
                         totalF += dailyData[key].fat;
                         loggedDays += 1;
+                    }
+                    if (energyByDate[key]) {
+                        totalBurn += energyByDate[key].burn;
+                        totalActive += energyByDate[key].active;
+                        energyDays += 1;
                     }
                 }
 
@@ -524,6 +682,8 @@ const StatsDashboard = ({ meals }) => {
                     avgProtein: avgP,
                     avgCarbs: avgC,
                     avgFat: avgF,
+                    burn: energyDays > 0 ? totalBurn / energyDays : null,
+                    active: energyDays > 0 ? totalActive / energyDays : null,
                     loggedDays,
                     totalDays: numDays
                 });
@@ -576,6 +736,15 @@ const StatsDashboard = ({ meals }) => {
                     }
                 });
 
+                let totalBurn = 0, totalActive = 0, energyDays = 0;
+                Object.keys(energyByDate).forEach(key => {
+                    if (key.startsWith(yStr)) {
+                        totalBurn += energyByDate[key].burn;
+                        totalActive += energyByDate[key].active;
+                        energyDays += 1;
+                    }
+                });
+
                 const avgCal = loggedDays > 0 ? totalCal / loggedDays : 0;
                 const avgP = loggedDays > 0 ? totalP / loggedDays : 0;
                 const avgC = loggedDays > 0 ? totalC / loggedDays : 0;
@@ -588,6 +757,8 @@ const StatsDashboard = ({ meals }) => {
                     avgProtein: avgP,
                     avgCarbs: avgC,
                     avgFat: avgF,
+                    burn: energyDays > 0 ? totalBurn / energyDays : null,
+                    active: energyDays > 0 ? totalActive / energyDays : null,
                     loggedDays,
                     totalDays: 365
                 };
@@ -608,7 +779,7 @@ const StatsDashboard = ({ meals }) => {
                 }
             };
         }
-    }, [meals, viewType, dailyData]);
+    }, [meals, viewType, dailyData, energyByDate]);
 
     // Calculate additional insights
     const insights = useMemo(() => {
@@ -735,7 +906,13 @@ const StatsDashboard = ({ meals }) => {
                 
                 {/* Segmented Controls */}
                 <div className="segmented-control">
-                    <button 
+                    <button
+                        className={`segmented-button ${viewType === 'day' ? 'active' : ''}`}
+                        onClick={() => setViewType('day')}
+                    >
+                        일간
+                    </button>
+                    <button
                         className={`segmented-button ${viewType === 'week' ? 'active' : ''}`}
                         onClick={() => setViewType('week')}
                     >
@@ -1083,6 +1260,15 @@ const StatsDashboard = ({ meals }) => {
 
                     </div>
 
+                    {/* Calorie Balance Card (섭취 vs 소모) */}
+                    <CalorieBalanceCard
+                        dailyData={dailyData}
+                        dailyEnergy={dailyEnergy}
+                        viewType={viewType}
+                        manualBmr={manualBmr}
+                        onChangeManualBmr={setManualBmr}
+                    />
+
                     {/* Chart Card */}
                     <div className="apple-card" style={{ marginBottom: '2rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -1092,8 +1278,9 @@ const StatsDashboard = ({ meals }) => {
                                     <span>칼로리 & 영양소 추세 리포트</span>
                                 </div>
                                 <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    {viewType === 'week' ? '최근 8주간의 주차별 일평균 섭취량' : 
-                                     viewType === 'month' ? '최근 6개월간의 월별 일평균 섭취량' : 
+                                    {viewType === 'day' ? '최근 14일간의 일별 섭취량' :
+                                     viewType === 'week' ? '최근 8주간의 주차별 일평균 섭취량' :
+                                     viewType === 'month' ? '최근 6개월간의 월별 일평균 섭취량' :
                                      '연도별 일평균 섭취량'}
                                 </p>
                             </div>
@@ -1147,6 +1334,30 @@ const StatsDashboard = ({ meals }) => {
                                     }}
                                 >
                                     지방
+                                </button>
+                                <button
+                                    onClick={() => setVisibleMetrics(prev => ({ ...prev, burn: !prev.burn }))}
+                                    style={{
+                                        padding: '0.3rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600,
+                                        border: '1px solid var(--border-color)', cursor: 'pointer',
+                                        backgroundColor: visibleMetrics.burn ? 'rgba(155, 81, 224, 0.15)' : 'transparent',
+                                        color: visibleMetrics.burn ? '#9B51E0' : 'var(--text-secondary)',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    소모
+                                </button>
+                                <button
+                                    onClick={() => setVisibleMetrics(prev => ({ ...prev, active: !prev.active }))}
+                                    style={{
+                                        padding: '0.3rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600,
+                                        border: '1px solid var(--border-color)', cursor: 'pointer',
+                                        backgroundColor: visibleMetrics.active ? 'rgba(242, 153, 74, 0.15)' : 'transparent',
+                                        color: visibleMetrics.active ? '#F2994A' : 'var(--text-secondary)',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    활동
                                 </button>
                             </div>
                         </div>

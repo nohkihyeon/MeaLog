@@ -63,7 +63,7 @@ if (supabase) {
             localStorage.removeItem(LAST_PUSH_KEY);
             localStorage.removeItem(LAST_PULL_KEY);
             localStorage.setItem(OWNER_KEY, user.id);
-            db.meals.clear().then(() => scheduleSync(0));
+            Promise.all([db.meals.clear(), db.dailyEnergy.clear()]).then(() => scheduleSync(0));
             return;
         }
         localStorage.setItem(OWNER_KEY, user.id);
@@ -147,6 +147,37 @@ async function pullChanges() {
     }
 }
 
+// daily_energy(일별 소모 칼로리)는 앱에서 수정하지 않는 읽기 전용 데이터라
+// 커서 없이 전체를 받아 로컬 테이블을 서버 상태로 통째로 미러링한다.
+// (1년치 ≈ 365행, 페이지당 1000행이면 충분. 삭제 전파도 자동 해결)
+async function pullDailyEnergy() {
+    const rows = [];
+    for (let from = 0; ; from += PULL_PAGE_SIZE) {
+        const { data, error } = await supabase
+            .from('daily_energy')
+            .select('date, active_calories, basal_calories, updated_at')
+            .order('date', { ascending: true })
+            .range(from, from + PULL_PAGE_SIZE - 1);
+        if (error) {
+            // 테이블이 아직 없는 프로젝트에서도 meals 동기화는 계속 동작해야 한다
+            if (error.code === '42P01') return;
+            throw error;
+        }
+        if (data?.length) rows.push(...data);
+        if (!data || data.length < PULL_PAGE_SIZE) break;
+    }
+
+    await db.transaction('rw', db.dailyEnergy, async () => {
+        await db.dailyEnergy.clear();
+        await db.dailyEnergy.bulkAdd(rows.map(r => ({
+            date: r.date,
+            active: Number(r.active_calories) || 0,
+            basal: Number(r.basal_calories) || 0,
+            updatedAt: r.updated_at,
+        })));
+    });
+}
+
 let syncing = false;
 let pendingResync = false;
 
@@ -164,6 +195,7 @@ export async function fullSync() {
     try {
         await pullChanges();
         await pushChanges();
+        await pullDailyEnergy();
         setState({ status: 'idle', lastSyncAt: Date.now(), error: null });
     } catch (e) {
         console.error('Sync failed:', e);

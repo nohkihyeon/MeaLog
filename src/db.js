@@ -20,3 +20,11 @@ db.version(2).stores({
         meal.deleted ??= 0;
     })
 );
+
+// v3: Supabase daily_energy(일별 소모 칼로리) 로컬 캐시.
+// 앱에서는 읽기 전용 — 쓰기는 외부(헬스 데이터 업로드 스크립트)에서만 일어나고
+// 동기화 시 서버 상태를 그대로 미러링한다. 기본 키는 date(YYYY-MM-DD).
+db.version(3).stores({
+    meals: '++id, date, timestamp, updatedAt, deleted',
+    dailyEnergy: 'date'
+});

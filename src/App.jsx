@@ -5,6 +5,7 @@ import MonthFeed from './components/MonthFeed';
 import StatsDashboard from './components/StatsDashboard';
 import ConfettiEffect from './components/ConfettiEffect';
 import { useMeals } from './hooks/useMeals';
+import { useDailyEnergy } from './hooks/useDailyEnergy';
 import { useSyncTriggers } from './hooks/useSync';
 
 function todayStr() {
@@ -24,6 +25,7 @@ function App() {
   const [easterEggActive, setEasterEggActive] = useState(false);
 
   const { meals, addMeal, deleteMeal, updateMeal } = useMeals();
+  const dailyEnergy = useDailyEnergy();
   useSyncTriggers();
 
   const handleTriggerEasterEgg = () => {
@@ -65,7 +67,7 @@ function App() {
             onGoToToday={() => setCurrentDate(todayStr())}
           />
         ) : (
-          <StatsDashboard meals={meals} />
+          <StatsDashboard meals={meals} dailyEnergy={dailyEnergy} />
         )}
       </Layout>
     </>
