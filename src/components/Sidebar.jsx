@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { BarChart2, CalendarDays } from 'lucide-react';
+import { BarChart2, CalendarDays, Activity } from 'lucide-react';
 import SyncStatus from './SyncStatus';
 
-const Sidebar = ({ selectedDate, onSelectDate, currentView, onChangeView, onTriggerEasterEgg }) => {
+const Sidebar = ({ selectedDate, onSelectDate, currentView, onChangeView, hasEnergyData, onTriggerEasterEgg }) => {
     const currentYear = new Date(selectedDate).getFullYear();
     const months = Array.from({ length: 12 }, (_, i) => i + 1);
 
@@ -93,6 +93,30 @@ const Sidebar = ({ selectedDate, onSelectDate, currentView, onChangeView, onTrig
                     <BarChart2 size={15} color={currentView === 'stats' ? '#27AE60' : 'var(--text-secondary)'} />
                     <span>통계 리포트</span>
                 </div>
+                {/* 소모 칼로리 데이터가 있는 사용자에게만 노출 */}
+                {hasEnergyData && (
+                    <div
+                        onClick={() => onChangeView('energy')}
+                        style={{
+                            padding: '0.5rem 0.75rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.6rem',
+                            cursor: 'pointer',
+                            borderRadius: '6px',
+                            fontSize: '0.875rem',
+                            fontWeight: 600,
+                            backgroundColor: currentView === 'energy' ? 'rgba(255,255,255,0.05)' : 'transparent',
+                            color: currentView === 'energy' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                            transition: 'all 0.2s ease'
+                        }}
+                        onMouseOver={e => currentView !== 'energy' && (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.02)')}
+                        onMouseOut={e => currentView !== 'energy' && (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
+                        <Activity size={15} color={currentView === 'energy' ? '#F2994A' : 'var(--text-secondary)'} />
+                        <span>에너지 대시보드</span>
+                    </div>
+                )}
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 0.5rem 0' }}>

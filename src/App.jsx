@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import Sidebar from './components/Sidebar';
 import MonthFeed from './components/MonthFeed';
 import StatsDashboard from './components/StatsDashboard';
+import EnergyDashboard from './components/EnergyDashboard';
 import ConfettiEffect from './components/ConfettiEffect';
 import { useMeals } from './hooks/useMeals';
 import { useDailyEnergy } from './hooks/useDailyEnergy';
@@ -21,12 +22,16 @@ function App() {
   const [currentDate, setCurrentDate] = useState(todayStr);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [currentView, setCurrentView] = useState('feed'); // 'feed' | 'stats'
+  const [currentView, setCurrentView] = useState('feed'); // 'feed' | 'stats' | 'energy'
   const [easterEggActive, setEasterEggActive] = useState(false);
 
   const { meals, addMeal, deleteMeal, updateMeal } = useMeals();
   const dailyEnergy = useDailyEnergy();
   useSyncTriggers();
+
+  // 소모 칼로리 데이터가 없는 사용자에게는 에너지 대시보드를 아예 노출하지 않는다
+  const hasEnergyData = dailyEnergy.length > 0;
+  const effectiveView = currentView === 'energy' && !hasEnergyData ? 'stats' : currentView;
 
   const handleTriggerEasterEgg = () => {
     setEasterEggActive(true);
@@ -41,7 +46,7 @@ function App() {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen(o => !o)}
         onCloseSidebar={() => setSidebarOpen(false)}
-        currentView={currentView}
+        currentView={effectiveView}
         onChangeView={setCurrentView}
         onTriggerEasterEgg={handleTriggerEasterEgg}
         sidebar={
@@ -51,13 +56,17 @@ function App() {
               setCurrentDate(d);
               setSidebarOpen(false);
             }}
-            currentView={currentView}
-            onChangeView={setCurrentView}
+            currentView={effectiveView}
+            onChangeView={(v) => {
+              setCurrentView(v);
+              setSidebarOpen(false);
+            }}
+            hasEnergyData={hasEnergyData}
             onTriggerEasterEgg={handleTriggerEasterEgg}
           />
         }
       >
-        {currentView === 'feed' ? (
+        {effectiveView === 'feed' ? (
           <MonthFeed
             date={currentDate}
             meals={meals}
@@ -66,6 +75,8 @@ function App() {
             onUpdateMeal={updateMeal}
             onGoToToday={() => setCurrentDate(todayStr())}
           />
+        ) : effectiveView === 'energy' ? (
+          <EnergyDashboard dailyEnergy={dailyEnergy} />
         ) : (
           <StatsDashboard meals={meals} dailyEnergy={dailyEnergy} />
         )}
