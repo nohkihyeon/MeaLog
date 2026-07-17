@@ -76,7 +76,7 @@ function App() {
             onGoToToday={() => setCurrentDate(todayStr())}
           />
         ) : effectiveView === 'energy' ? (
-          <EnergyDashboard dailyEnergy={dailyEnergy} />
+          <EnergyDashboard dailyEnergy={dailyEnergy} meals={meals} />
         ) : (
           <StatsDashboard meals={meals} dailyEnergy={dailyEnergy} />
         )}

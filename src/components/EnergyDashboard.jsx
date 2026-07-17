@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { Activity, Trophy, TrendingUp, TrendingDown, Sigma } from 'lucide-react';
+import { Activity, Trophy, TrendingUp, TrendingDown, Sigma, Utensils } from 'lucide-react';
+import { getEffectiveCalories } from '../utils/nutrition';
 
 const ACTIVE_COLOR = '#F2994A';
 const BASAL_COLOR = 'rgba(155, 81, 224, 0.55)';
 const BASAL_SOLID = '#9B51E0';
+const INTAKE_COLOR = '#56CCF2';
 
 // 단위별 기간 옵션. days는 옵션 표시 여부(데이터 스팬 대비) 판정에도 쓰인다.
 const UNITS = [
@@ -51,7 +53,7 @@ const dateKey = (d) => {
 const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
 
 // ---- 스택/단일 바 차트 (버킷 수가 많아도 동작하도록 라벨은 듬성듬성) ----
-const EnergyChart = ({ buckets, metric, showMA }) => {
+const EnergyChart = ({ buckets, metric, showMA, showIntake }) => {
     const [hoveredIndex, setHoveredIndex] = useState(null);
 
     if (!buckets || buckets.length === 0) return null;
@@ -70,8 +72,9 @@ const EnergyChart = ({ buckets, metric, showMA }) => {
         metric === 'active' ? b.avgActive : b.avgBasal;
 
     const values = buckets.map(valueOf).filter(v => v != null);
-    if (values.length === 0) return null;
-    const maxVal = Math.max(...values, 100) * 1.08;
+    const intakeValues = showIntake ? buckets.map(b => b.avgIntake).filter(v => v != null) : [];
+    if (values.length === 0 && intakeValues.length === 0) return null;
+    const maxVal = Math.max(...values, ...intakeValues, 100) * 1.08;
 
     const chartW = width - padLeft - padRight;
     const n = buckets.length;
@@ -99,7 +102,26 @@ const EnergyChart = ({ buckets, metric, showMA }) => {
         });
     }
 
+    // 섭취 칼로리 꺾은선 — 기록 없는 버킷에서는 선을 끊는다
+    let intakePath = '';
+    const intakePts = [];
+    if (showIntake) {
+        let pen = false;
+        buckets.forEach((b, idx) => {
+            if (b.avgIntake == null) { pen = false; return; }
+            const px = padLeft + idx * colWidth + colWidth / 2;
+            const py = yFor(Math.min(b.avgIntake, maxVal));
+            intakePts.push({ x: px, y: py, idx });
+            intakePath += pen ? ` L ${px},${py}` : ` M ${px},${py}`;
+            pen = true;
+        });
+    }
+    const showIntakeDots = n <= 45;
+
     const hovered = hoveredIndex !== null ? buckets[hoveredIndex] : null;
+    const hoveredBalance = hovered && hovered.avgIntake != null && hovered.recorded > 0
+        ? hovered.avgIntake - hovered.avgTotal
+        : null;
 
     return (
         <div style={{ position: 'relative', width: '100%', marginTop: '1.25rem' }}>
@@ -203,6 +225,31 @@ const EnergyChart = ({ buckets, metric, showMA }) => {
                         strokeLinejoin="round"
                     />
                 )}
+
+                {/* 섭취 칼로리 꺾은선 (막대 위 오버레이) */}
+                {showIntake && intakePath && (
+                    <>
+                        <path
+                            d={intakePath}
+                            fill="none"
+                            stroke={INTAKE_COLOR}
+                            strokeWidth="1.8"
+                            opacity="0.9"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                        />
+                        {showIntakeDots && intakePts.map((p) => (
+                            <circle
+                                key={p.idx}
+                                cx={p.x} cy={p.y}
+                                r={hoveredIndex === p.idx ? 3.2 : 2.2}
+                                fill={INTAKE_COLOR}
+                                stroke="var(--bg-secondary, #1E1E1E)"
+                                strokeWidth="1"
+                            />
+                        ))}
+                    </>
+                )}
             </svg>
 
             {/* 범례 */}
@@ -225,6 +272,11 @@ const EnergyChart = ({ buckets, metric, showMA }) => {
                 {showMA && (
                     <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                         <span style={{ width: '12px', height: '2px', backgroundColor: 'var(--text-primary)', opacity: 0.55 }} />7일 이동평균
+                    </span>
+                )}
+                {showIntake && intakePath && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span style={{ width: '12px', height: '2px', backgroundColor: INTAKE_COLOR, borderRadius: '1px' }} />섭취 칼로리
                     </span>
                 )}
             </div>
@@ -266,6 +318,23 @@ const EnergyChart = ({ buckets, metric, showMA }) => {
                         <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>💤 기초</span>
                         <span style={{ color: BASAL_SOLID }}>{Math.round(hovered.avgBasal).toLocaleString()} kcal</span>
                     </div>
+                    {showIntake && hovered.avgIntake != null && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🍽 섭취</span>
+                            <span style={{ color: INTAKE_COLOR }}>{Math.round(hovered.avgIntake).toLocaleString()} kcal</span>
+                        </div>
+                    )}
+                    {showIntake && hoveredBalance != null && (
+                        <div style={{
+                            display: 'flex', justifyContent: 'space-between', gap: '1rem',
+                            borderTop: '1px solid var(--border-color)', paddingTop: '4px', marginTop: '2px',
+                        }}>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>⚖️ 수지</span>
+                            <span style={{ color: hoveredBalance > 0 ? '#EB5757' : '#27AE60' }}>
+                                {hoveredBalance > 0 ? '+' : ''}{Math.round(hoveredBalance).toLocaleString()} kcal
+                            </span>
+                        </div>
+                    )}
                     {hovered.totalDays > 1 && (
                         <span style={{ color: 'var(--text-tertiary)', fontSize: '0.65rem', alignSelf: 'center', marginTop: '2px' }}>
                             기록일: {hovered.recorded}/{hovered.totalDays}일 (일평균)
@@ -294,10 +363,22 @@ const Tile = ({ label, value, unit, sub, color }) => (
     </div>
 );
 
-const EnergyDashboard = ({ dailyEnergy }) => {
+const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
     const [unit, setUnit] = useState('week');
     const [rangeKey, setRangeKey] = useState('26w');
     const [metric, setMetric] = useState('total');
+    const [showIntake, setShowIntake] = useState(true);
+
+    // date → 그날 섭취 칼로리 합 (직접 입력 없으면 탄단지 4/4/9 환산값 사용)
+    const intakeMap = useMemo(() => {
+        const map = {};
+        meals.forEach(m => {
+            if (!m.date) return;
+            const kcal = getEffectiveCalories(m);
+            if (kcal > 0) map[m.date] = (map[m.date] || 0) + kcal;
+        });
+        return map;
+    }, [meals]);
 
     // 기초값이 없는 날 폴백용 BMR (통계 리포트의 설정과 동일 키 공유)
     const [manualBmr] = useState(() => {
@@ -354,18 +435,28 @@ const EnergyDashboard = ({ dailyEnergy }) => {
 
         const aggregate = (dates) => {
             let active = 0, basal = 0, recorded = 0;
+            let intake = 0, intakeDays = 0;
             dates.forEach(key => {
                 const e = energyMap[key];
-                if (!e) return;
-                active += e.active;
-                basal += e.basal;
-                recorded += 1;
+                if (e) {
+                    active += e.active;
+                    basal += e.basal;
+                    recorded += 1;
+                }
+                const kcal = intakeMap[key];
+                if (kcal > 0) {
+                    intake += kcal;
+                    intakeDays += 1;
+                }
             });
             return {
                 recorded,
                 avgActive: recorded ? active / recorded : 0,
                 avgBasal: recorded ? basal / recorded : 0,
                 avgTotal: recorded ? (active + basal) / recorded : 0,
+                // 식단 기록이 있는 날만으로 일평균 섭취 계산 (없으면 null → 선 끊김)
+                avgIntake: intakeDays ? intake / intakeDays : null,
+                intakeDays,
             };
         };
 
@@ -443,7 +534,7 @@ const EnergyDashboard = ({ dailyEnergy }) => {
         }
 
         return result;
-    }, [dailyEnergy, energyMap, unit, range, minDateStr]);
+    }, [dailyEnergy, energyMap, intakeMap, unit, range, minDateStr]);
 
     // ---- 선택 범위 내 일 단위 통계 (요약 카드/인사이트용) ----
     const rangeStats = useMemo(() => {
@@ -492,6 +583,19 @@ const EnergyDashboard = ({ dailyEnergy }) => {
             if (firstAvg > 0) trendPct = ((secondAvg - firstAvg) / firstAvg) * 100;
         }
 
+        // 섭취/수지: 식단 기록이 있는 날 기준. 수지는 소모 기록도 함께 있는 날만 계산.
+        let intakeSum = 0, intakeDays = 0, balSum = 0, balDays = 0;
+        Object.entries(intakeMap).forEach(([date, kcal]) => {
+            if (date < startKey) return;
+            intakeSum += kcal;
+            intakeDays += 1;
+            const e = energyMap[date];
+            if (e) {
+                balSum += kcal - e.total;
+                balDays += 1;
+            }
+        });
+
         return {
             recorded: days.length,
             totalDays,
@@ -502,8 +606,12 @@ const EnergyDashboard = ({ dailyEnergy }) => {
             bestDow,
             bestDowAvg,
             trendPct,
+            avgIntake: intakeDays ? intakeSum / intakeDays : null,
+            intakeDays,
+            avgBalance: balDays ? balSum / balDays : null,
+            balDays,
         };
-    }, [dailyEnergy, energyMap, range, minDateStr]);
+    }, [dailyEnergy, energyMap, intakeMap, range, minDateStr]);
 
     if (dailyEnergy.length === 0) return null;
 
@@ -573,6 +681,22 @@ const EnergyDashboard = ({ dailyEnergy }) => {
                                 {m.label}
                             </button>
                         ))}
+                        {/* 섭취 꺾은선 토글 — 총 소모(막대)와 비교할 때만 의미가 있어 total 지표에서만 노출 */}
+                        {metric === 'total' && rangeStats?.avgIntake != null && (
+                            <button
+                                onClick={() => setShowIntake(v => !v)}
+                                style={{
+                                    padding: '0.3rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600,
+                                    border: `1px solid ${showIntake ? 'rgba(86,204,242,0.5)' : 'var(--border-color)'}`,
+                                    cursor: 'pointer',
+                                    backgroundColor: showIntake ? 'rgba(86, 204, 242, 0.15)' : 'transparent',
+                                    color: showIntake ? INTAKE_COLOR : 'var(--text-secondary)',
+                                    transition: 'all 0.15s ease'
+                                }}
+                            >
+                                🍽 섭취
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -596,6 +720,24 @@ const EnergyDashboard = ({ dailyEnergy }) => {
                             unit="kcal"
                             sub={bestDate ? `${bestDate.getMonth() + 1}/${bestDate.getDate()} (${DAY_NAMES[bestDate.getDay()]})` : ''}
                         />
+                        {rangeStats.avgIntake != null && (
+                            <Tile
+                                label="일평균 섭취"
+                                value={Math.round(rangeStats.avgIntake).toLocaleString()}
+                                unit="kcal"
+                                color={INTAKE_COLOR}
+                                sub={`${rangeStats.intakeDays}일 기록`}
+                            />
+                        )}
+                        {rangeStats.avgBalance != null && (
+                            <Tile
+                                label="평균 칼로리 수지"
+                                value={`${rangeStats.avgBalance > 0 ? '+' : ''}${Math.round(rangeStats.avgBalance).toLocaleString()}`}
+                                unit="kcal"
+                                color={rangeStats.avgBalance > 0 ? '#EB5757' : '#27AE60'}
+                                sub="섭취 − 총 소모"
+                            />
+                        )}
                         <Tile
                             label="기록 커버리지"
                             value={Math.min(Math.round((rangeStats.recorded / rangeStats.totalDays) * 100), 100)}
@@ -610,7 +752,7 @@ const EnergyDashboard = ({ dailyEnergy }) => {
                         선택한 기간에 소모 칼로리 기록이 없습니다.
                     </p>
                 ) : (
-                    <EnergyChart buckets={buckets} metric={metric} showMA={unit === 'day'} />
+                    <EnergyChart buckets={buckets} metric={metric} showMA={unit === 'day'} showIntake={showIntake && metric === 'total'} />
                 )}
             </div>
 
@@ -639,6 +781,15 @@ const EnergyDashboard = ({ dailyEnergy }) => {
                                 </div>
                                 <p style={{ margin: 0 }}>
                                     기간 후반부의 일평균 총 소모가 전반부 대비 약 <strong style={{ fontWeight: 600 }}>{Math.abs(Math.round(rangeStats.trendPct))}% {rangeStats.trendPct >= 0 ? '증가' : '감소'}</strong>했습니다.
+                                </p>
+                            </div>
+                        )}
+                        {rangeStats.avgBalance != null && rangeStats.balDays >= 3 && (
+                            <div className="insight-item">
+                                <div className="insight-icon"><Utensils size={16} color={INTAKE_COLOR} /></div>
+                                <p style={{ margin: 0 }}>
+                                    섭취·소모가 모두 기록된 {rangeStats.balDays}일 기준, 일평균 <strong style={{ fontWeight: 600, color: rangeStats.avgBalance > 0 ? '#EB5757' : '#27AE60' }}>{Math.abs(Math.round(rangeStats.avgBalance)).toLocaleString()} kcal {rangeStats.avgBalance > 0 ? '흑자' : '적자'}</strong>예요.
+                                    이 페이스면 주당 약 <strong style={{ fontWeight: 600 }}>{(Math.abs(rangeStats.avgBalance) * 7 / 7700).toFixed(2)}kg {rangeStats.avgBalance > 0 ? '증량' : '감량'}</strong> 속도입니다.
                                 </p>
                             </div>
                         )}
