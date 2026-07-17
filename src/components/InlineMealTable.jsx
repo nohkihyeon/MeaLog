@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Trash2 } from 'lucide-react';
-import { calcMacroKcal } from '../utils/nutrition';
+import { Trash2, Sparkles, Loader2, AlertCircle } from 'lucide-react';
+import { calcMacroKcal, round1 } from '../utils/nutrition';
+import { analyzeFoodName, hasGeminiKey } from '../utils/gemini';
+import AiFoodModal from './AiFoodModal';
 
 const MEAL_TYPES = [
     { id: 'breakfast', label: '아침', color: '#2F80ED' },
@@ -213,6 +215,18 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
 
     return (
         <div className="meal-table-scroll">
+            <style>{`
+                .ai-fill-btn{
+                    display:flex;align-items:center;justify-content:center;
+                    width:22px;height:22px;flex-shrink:0;border-radius:999px;
+                    border:1px solid rgba(187,107,217,0.45);
+                    background:rgba(187,107,217,0.12);color:#BB6BD9;cursor:pointer;
+                    transition:all .15s ease;
+                }
+                .ai-fill-btn:hover{background:rgba(187,107,217,0.28);box-shadow:0 0 8px rgba(187,107,217,0.35);}
+                .ai-spin{animation:ai-spin 1s linear infinite;}
+                @keyframes ai-spin{to{transform:rotate(360deg)}}
+            `}</style>
             <div style={{ minWidth: '780px', fontSize: '0.95rem' }}>
                 {/* Header */}
                 <div style={{
@@ -256,6 +270,44 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
     const [isHovered, setIsHovered] = useState(false);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(-1);
+
+    // --- AI 이름 검색(탄단지·칼로리 자동 채움) ---
+    const [aiStatus, setAiStatus] = useState('idle'); // idle | loading | error
+    const [aiInfo, setAiInfo] = useState(null); // 애매할 때 팝업에 넘길 결과
+    const aiErrorTimer = useRef(null);
+    useEffect(() => () => clearTimeout(aiErrorTimer.current), []);
+
+    // per_100g 값을 grams 에 비례시켜 행에 채워 넣는다 (섭취량도 함께 기록)
+    const applyAiValues = (info, grams) => {
+        const s = grams / 100;
+        onUpdate(meal.id, {
+            calories: String(Math.round((info.per100.calories_kcal || 0) * s)),
+            carbs: String(round1((info.per100.carbs_g || 0) * s)),
+            protein: String(round1((info.per100.protein_g || 0) * s)),
+            fat: String(round1((info.per100.fat_g || 0) * s)),
+            intake: String(grams),
+        });
+    };
+
+    const handleAiLookup = async () => {
+        if (aiStatus === 'loading') return;
+        setAiStatus('loading');
+        try {
+            const info = await analyzeFoodName(meal.name.trim());
+            if (info.confidence === 'high') {
+                // 명확한 단품: 되묻지 않고 1회 제공량 기준으로 바로 채움
+                applyAiValues(info, info.servingG);
+            } else {
+                // 애매: 팝업으로 양을 되물어본다
+                setAiInfo(info);
+            }
+            setAiStatus('idle');
+        } catch (err) {
+            console.error('AI 이름 검색 실패', err);
+            setAiStatus('error');
+            aiErrorTimer.current = setTimeout(() => setAiStatus('idle'), 4000);
+        }
+    };
 
     // --- IME composition handling (Safari fix) ---
     // While a Hangul/IME composition is in progress, every intermediate keystroke still
@@ -304,6 +356,10 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
     const showAutoCalories = caloriesEmpty && macroKcal > 0;
     const getTypeLabel = (id) => MEAL_TYPES.find(t => t.id === id) || { label: id, color: '#888' };
     const typeObj = getTypeLabel(meal.type);
+
+    // 이름만 단독으로 입력돼 있고(탄단지·칼로리 전부 비어 있음) 키가 있으면 AI 버튼 노출
+    const macrosEmpty = !meal.calories && !meal.protein && !meal.carbs && !meal.fat;
+    const showAiButton = Boolean(meal.name && meal.name.trim()) && macrosEmpty && hasGeminiKey();
 
     const handleSelectSuggestion = (suggestion) => {
         onUpdate(meal.id, {
@@ -433,7 +489,14 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                                         transition: 'background-color 0.2s ease'
                                     }}
                                 >
-                                    <div style={{ fontWeight: '500', fontSize: '0.9rem' }}>{suggestion.name}</div>
+                                    <div style={{ fontWeight: '500', fontSize: '0.9rem' }}>
+                                        {suggestion.name}
+                                        {suggestion.intake && (
+                                            <span style={{ color: 'var(--text-tertiary)', fontWeight: 400, marginLeft: '4px' }}>
+                                                ({suggestion.intake}g)
+                                            </span>
+                                        )}
+                                    </div>
                                     <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', display: 'flex', gap: '8px' }}>
                                         <span>🔥 {suggestion.calories}kcal</span>
                                         <span>💪 {suggestion.protein}g</span>
@@ -454,7 +517,50 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                         </div>
                     )}
                 </div>
+
+                {/* AI 자동 채움: 이름만 있을 때 작게 표시 → 클릭 시 같은 자리에서 로딩 */}
+                {showAiButton && (
+                    aiStatus === 'loading' ? (
+                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '22px', height: '22px', flexShrink: 0 }}>
+                            <Loader2 size={14} color="#BB6BD9" className="ai-spin" />
+                        </span>
+                    ) : aiStatus === 'error' ? (
+                        <button
+                            onClick={handleAiLookup}
+                            className="ai-fill-btn"
+                            style={{ borderColor: 'rgba(235,87,87,0.5)', background: 'rgba(235,87,87,0.12)', color: '#EB5757' }}
+                            title="AI 조회에 실패했어요. 다시 시도하려면 클릭"
+                            aria-label="AI 조회 재시도"
+                        >
+                            <AlertCircle size={13} />
+                        </button>
+                    ) : (
+                        <button
+                            onClick={handleAiLookup}
+                            className="ai-fill-btn"
+                            title={`"${meal.name}" 탄단지·칼로리 AI로 채우기`}
+                            aria-label="AI로 영양정보 채우기"
+                        >
+                            <Sparkles size={13} />
+                        </button>
+                    )
+                )}
             </div>
+
+            {/* 애매한 음식: 양(g) 확인 팝업 */}
+            {aiInfo && (
+                <AiFoodModal
+                    name={meal.name}
+                    question={aiInfo.question}
+                    servingG={aiInfo.servingG}
+                    per100={aiInfo.per100}
+                    onConfirm={(grams) => {
+                        applyAiValues(aiInfo, grams);
+                        setAiInfo(null);
+                    }}
+                    onClose={() => setAiInfo(null)}
+                />
+            )}
 
             <div style={{ paddingRight: '1rem', position: 'relative' }}>
                 <input

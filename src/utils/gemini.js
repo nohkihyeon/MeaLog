@@ -91,25 +91,17 @@ export function hasGeminiKey() {
     return Boolean(API_KEY);
 }
 
-export async function analyzeFoodImage(dataUrl) {
+// 모델 폴백 루프를 공용화: parts + responseSchema 를 받아 파싱된 JSON을 돌려준다.
+async function requestGeminiJson(parts, responseSchema) {
     if (!API_KEY) {
         throw new Error('VITE_GEMINI_API_KEY 가 설정되지 않았습니다. .env에 키를 넣어주세요.');
     }
-    const { mimeType, base64 } = splitDataUrl(dataUrl);
-
     const body = {
-        contents: [
-            {
-                parts: [
-                    { text: PROMPT },
-                    { inline_data: { mime_type: mimeType, data: base64 } },
-                ],
-            },
-        ],
+        contents: [{ parts }],
         generationConfig: {
             temperature: 0.2,
             responseMimeType: 'application/json',
-            responseSchema: RESPONSE_SCHEMA,
+            responseSchema,
         },
     };
 
@@ -135,7 +127,7 @@ export async function analyzeFoodImage(dataUrl) {
             const text = json?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') ?? '';
             const parsed = extractJson(text);
             if (!parsed) throw new Error('AI 응답을 해석하지 못했습니다. 다시 시도해주세요.');
-            return { items: normalizeItems(parsed), note: parsed.note || '', model };
+            return { parsed, model };
         } catch (e) {
             lastErr = e;
             // 네트워크 등 일반 에러는 폴백하지 않고 종료
@@ -143,4 +135,73 @@ export async function analyzeFoodImage(dataUrl) {
         }
     }
     throw lastErr || new Error('사용 가능한 Gemini 모델을 찾지 못했습니다.');
+}
+
+export async function analyzeFoodImage(dataUrl) {
+    const { mimeType, base64 } = splitDataUrl(dataUrl);
+    const { parsed, model } = await requestGeminiJson(
+        [
+            { text: PROMPT },
+            { inline_data: { mime_type: mimeType, data: base64 } },
+        ],
+        RESPONSE_SCHEMA
+    );
+    return { items: normalizeItems(parsed), note: parsed.note || '', model };
+}
+
+// ---------- 음식 이름(텍스트) → 영양 정보 추정 ----------
+
+const NAME_PROMPT = (name) => `너는 영양 분석 도우미야. 사용자가 식단 기록 앱에 입력한 음식 이름: "${name}"
+이 음식의 영양 정보를 추정해서 JSON으로 답해.
+- is_food: 음식/음료로 볼 수 있으면 true
+- confidence: 메뉴가 단품으로 명확하고(예: 브랜드 메뉴, 규격 제품) 1회 제공량이 뚜렷하면 "high",
+  양이나 조리법에 따라 편차가 커서 사용자에게 양을 되물어야 하면 "ambiguous" (예: 삼겹살, 밥, 과일 등)
+- question: confidence가 "ambiguous"일 때 사용자에게 물어볼 짧고 친근한 한 문장 (예: "삼겹살 200g 정도 드셨나요?")
+- serving_g: 일반적인 1인 1회 섭취량 (그램, 정수)
+- per_100g: 100g 기준 영양소 { carbs_g, protein_g, fat_g, calories_kcal }
+값은 0 이상, 확신이 없어도 합리적으로 추정해. 설명 없이 JSON만 출력해.`;
+
+const NAME_RESPONSE_SCHEMA = {
+    type: 'object',
+    properties: {
+        is_food: { type: 'boolean' },
+        confidence: { type: 'string', enum: ['high', 'ambiguous'] },
+        question: { type: 'string' },
+        serving_g: { type: 'number' },
+        per_100g: {
+            type: 'object',
+            properties: {
+                carbs_g: { type: 'number' },
+                protein_g: { type: 'number' },
+                fat_g: { type: 'number' },
+                calories_kcal: { type: 'number' },
+            },
+            required: ['carbs_g', 'protein_g', 'fat_g', 'calories_kcal'],
+        },
+    },
+    required: ['is_food', 'confidence', 'serving_g', 'per_100g'],
+};
+
+const clamp1 = (n) => Math.max(0, Math.round((Number(n) || 0) * 10) / 10);
+
+export async function analyzeFoodName(name) {
+    const { parsed, model } = await requestGeminiJson(
+        [{ text: NAME_PROMPT(name) }],
+        NAME_RESPONSE_SCHEMA
+    );
+    if (!parsed.is_food) {
+        throw new Error(`"${name}" 을(를) 음식으로 인식하지 못했어요.`);
+    }
+    return {
+        confidence: parsed.confidence === 'ambiguous' ? 'ambiguous' : 'high',
+        question: String(parsed.question || '').trim(),
+        servingG: Math.max(1, Math.round(Number(parsed.serving_g) || 100)),
+        per100: {
+            carbs_g: clamp1(parsed.per_100g?.carbs_g),
+            protein_g: clamp1(parsed.per_100g?.protein_g),
+            fat_g: clamp1(parsed.per_100g?.fat_g),
+            calories_kcal: clamp1(parsed.per_100g?.calories_kcal),
+        },
+        model,
+    };
 }
