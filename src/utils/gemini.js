@@ -4,10 +4,11 @@
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 // 기본 모델 + 폴백. 첫 모델이 404/지원불가면 다음 모델로 재시도.
-// 기본값은 무료 한도가 가장 넉넉한 gemini-3.1-flash-lite.
+// 기본값은 Flash-Lite 계열 최신인 gemini-3.5-flash-lite (가장 빠르고 저렴).
 // 폴백은 모두 현재 제공 중인 모델로 구성 (2.0/1.5 flash는 종료되어 제거).
 const MODELS = [
-    import.meta.env.VITE_GEMINI_MODEL || 'gemini-3.1-flash-lite',
+    import.meta.env.VITE_GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
     'gemini-2.5-flash-lite',
     'gemini-2.5-flash',
 ].filter((v, i, a) => v && a.indexOf(v) === i);

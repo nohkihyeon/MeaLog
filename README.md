@@ -30,35 +30,38 @@ React 19 · Vite 7 · Dexie(IndexedDB) · Supabase · vite-plugin-pwa · Google 
 
 ## AI 모델 (Gemini)
 
-음식 사진 분석은 Google Gemini 비전 API를 클라이언트에서 직접 호출합니다.
-기본 모델을 **`gemini-2.5-flash` → `gemini-3.1-flash-lite`** 로 변경했습니다.
+음식 사진 분석과 음식 이름(텍스트) 분석 모두 Google Gemini API를 클라이언트에서 직접 호출합니다.
+두 호출은 같은 폴백 루프(`requestGeminiJson`)를 공유하므로, 기본 모델을 바꾸면 양쪽에 동시에 적용됩니다.
+기본 모델을 **`gemini-3.1-flash-lite` → `gemini-3.5-flash-lite`** 로 변경했습니다.
 
 이유는 두 가지입니다.
 
-1. **무료 한도가 가장 넉넉한 등급** — Flash-Lite 등급은 같은 무료 티어에서도 Flash 대비 하루 요청 한도(RPD)가 훨씬 큽니다. 사진 분석은 가벼운 멀티모달 작업이라 Lite로도 충분합니다.
-2. **더 저렴하고 빠름** — 유료로 넘어가도 토큰 단가가 Flash의 1/6 수준이고, 응답 지연도 더 짧습니다.
+1. **Flash-Lite 계열 최신 버전** — 2026-07 GA된 `gemini-3.5-flash-lite`는 Flash-Lite 3.5 세대에서 가장 빠르고 저렴한 모델로, 문서 파싱·구조화 JSON 추출 같은 고처리량 작업에서 이전 세대(3.1) 대비 추론·멀티모달 성능이 개선됐습니다. 영양 정보 추정은 딱 이런 가벼운 구조화 작업이라 잘 맞습니다.
+2. **무료 한도가 넉넉하고 저렴함** — Flash-Lite 등급은 같은 무료 티어에서도 Flash 대비 하루 요청 한도(RPD)가 크고, 유료 단가도 Flash보다 훨씬 쌉니다. 응답 지연도 짧아 입력 UX가 매끄럽습니다.
 
-폴백 체인도 정리했습니다. 기존 폴백이던 `gemini-2.0-flash` / `gemini-1.5-flash` 는 **현재 종료(shut down)** 되어 제거하고, 살아 있는 모델로 교체했습니다.
+폴백 체인은 기존 Lite 모델을 뒤로 두어 안정성을 유지합니다.
 
 ```
-gemini-3.1-flash-lite  →  gemini-2.5-flash-lite  →  gemini-2.5-flash
+gemini-3.5-flash-lite  →  gemini-3.1-flash-lite  →  gemini-2.5-flash-lite  →  gemini-2.5-flash
 ```
 
-`.env` 의 `VITE_GEMINI_MODEL` 로 언제든 다른 모델을 지정할 수 있습니다.
+`.env` 의 `VITE_GEMINI_MODEL` 로 언제든 다른 모델(예: 더 강력한 `gemini-3.6-flash`)을 지정할 수 있습니다.
 
 ### 모델 비교
 
 | 모델 | 상태 | 멀티모달 입력 | 컨텍스트(입력/출력) | 유료 입력 / 출력 (1M 토큰) | 무료 티어 |
 | --- | --- | --- | --- | --- | --- |
-| **`gemini-3.1-flash-lite`** ⭐ 기본값 | Stable | 텍스트·이미지·동영상·오디오·PDF | 1,048,576 / 65,536 | **$0.25 / $1.50** | 무료 제공 · 일일 한도 가장 넉넉 |
+| **`gemini-3.5-flash-lite`** ⭐ 기본값 | Stable (2026-07 GA) | 텍스트·이미지·동영상·오디오·PDF | 1,048,576 / 65,536 | **$0.30 / $2.50** | 무료 제공 · Flash-Lite 계열, 한도 넉넉 |
+| `gemini-3.1-flash-lite` (1차 폴백) | Stable | 텍스트·이미지·동영상·오디오·PDF | 1,048,576 / 65,536 | $0.25 / $1.50 | 무료 제공 · 한도 넉넉 |
 | `gemini-2.5-flash-lite` | Stable | 텍스트·이미지·동영상·오디오 | 1,048,576 / 65,536 | $0.10 / $0.40 | 무료 제공 · 한도 넉넉 |
-| `gemini-2.5-flash` (이전 기본값) | Stable | 텍스트·이미지·동영상·오디오 | 1,048,576 / 65,536 | $0.30 / $2.50 | 무료 제공 · 한도 작음 |
+| `gemini-2.5-flash` | Stable | 텍스트·이미지·동영상·오디오 | 1,048,576 / 65,536 | $0.30 / $2.50 | 무료 제공 · 한도 작음 |
+| `gemini-3.6-flash` (참고: 상위 Flash) | Stable (2026-07 GA) | 텍스트·이미지·동영상·오디오·PDF | 1,048,576 / 65,536 | $1.50 / $7.50 | 무료 한도 작음 · 더 강력 |
 | ~~`gemini-2.0-flash`~~ | 종료됨 | — | — | — | 사용 불가 |
 | ~~`gemini-1.5-flash`~~ | 종료됨 | — | — | — | 사용 불가 |
 
 > 유료 단가는 Standard 등급, 텍스트/이미지/동영상 입력 기준입니다(오디오는 더 비쌈).
 > 무료 티어의 정확한 일일 요청 수(RPD)는 Google이 계정·프로젝트별로 [AI Studio](https://aistudio.google.com/rate-limit)에서 표시하며 수시로 바뀝니다. 일반적으로 **Flash-Lite 등급 > Flash 등급** 순으로 무료 한도가 큽니다.
-> 출처: [Gemini API 모델](https://ai.google.dev/gemini-api/docs/models) · [요금](https://ai.google.dev/gemini-api/docs/pricing) · [요청 한도](https://ai.google.dev/gemini-api/docs/rate-limits) (2026-06 기준)
+> 출처: [Gemini API 모델](https://ai.google.dev/gemini-api/docs/models) · [최신 모델](https://ai.google.dev/gemini-api/docs/latest-model) · [요금](https://ai.google.dev/gemini-api/docs/pricing) (2026-07 기준)
 
 ## 시작하기
 
@@ -78,7 +81,7 @@ npm run preview  # 빌드 결과 미리보기
 | 변수 | 필수 | 설명 |
 | --- | --- | --- |
 | `VITE_GEMINI_API_KEY` | 사진 분석 사용 시 | [Google AI Studio](https://aistudio.google.com/apikey)에서 무료 발급. 미설정 시 '사진으로 추가'만 비활성화됩니다. |
-| `VITE_GEMINI_MODEL` | 선택 | 사용할 모델. 기본값 `gemini-3.1-flash-lite`. |
+| `VITE_GEMINI_MODEL` | 선택 | 사용할 모델. 기본값 `gemini-3.5-flash-lite`. |
 | `VITE_SUPABASE_URL` | 동기화 사용 시 | 미설정 시 동기화 없이 로컬 전용으로 동작합니다. |
 | `VITE_SUPABASE_ANON_KEY` | 동기화 사용 시 | Supabase 프로젝트의 anon 키. |
 
