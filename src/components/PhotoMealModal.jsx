@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { X, Camera, Image as ImageIcon, Minus, Plus, Trash2, Check, RefreshCw, Loader2, Sparkles, SkipForward, AlertCircle } from 'lucide-react';
+import { X, Camera, Image as ImageIcon, Minus, Plus, Trash2, Check, RefreshCw, Loader2, Sparkles, SkipForward, AlertCircle, PenLine } from 'lucide-react';
 import { analyzeFoodImage, hasGeminiKey } from '../utils/gemini';
+import { readPhotoTakenAt } from '../utils/exif';
 
 const MEAL_TYPES = [
     { id: 'breakfast', label: '아침', color: '#2F80ED' },
@@ -20,6 +21,9 @@ const PORTION_PRESETS = [
 
 // 앨범에서 한 번에 고를 수 있는 최대 장수 (무료 티어 일일 요청 한도 고려)
 const MAX_PHOTOS = 10;
+
+// 인식이 틀렸을 때 탭 한 번으로 붙이는 메모
+const HINT_CHIPS = ['곱빼기', '밥 반 공기', '소스·드레싱 없이', '편의점 제품', '배달 음식'];
 
 // 캔버스로 긴 변 maxSize 이하로 축소 후 JPEG dataURL 반환 (요청 용량/속도 절감)
 function resizeImage(file, maxSize = 1024) {
@@ -51,7 +55,7 @@ function resizeImage(file, maxSize = 1024) {
     });
 }
 
-// 사진 파일 시각(앨범 사진이면 대개 촬영 시각)으로 끼니를 추정. 없으면 현재 시각.
+// 촬영 시각으로 끼니를 추정. 없으면 현재 시각.
 const defaultMealType = (time = Date.now()) => {
     const h = new Date(time).getHours();
     if (h < 11) return 'breakfast';
@@ -60,19 +64,34 @@ const defaultMealType = (time = Date.now()) => {
     return 'snack';
 };
 
+const toDateStr = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const shortDate = (s) => {
+    const [, m, d] = s.split('-');
+    return `${Number(m)}/${Number(d)}`;
+};
+const formatTakenAt = (d) => d.toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
 let entrySeq = 0;
-// 사진 1장 = 분석 결과 + 인원/먹은양/끼니 설정을 각각 따로 가진다
-const makeEntry = (file) => ({
+// 사진 1장 = 분석 결과 + 날짜/인원/먹은양/끼니 설정을 각각 따로 가진다
+// 촬영 시각(EXIF)이 있으면 그 날짜·끼니가 기본값, 없으면 지금 보고 있는 날짜 + 현재 시각 기준
+const makeEntry = (file, takenAt, viewDate) => ({
     id: ++entrySeq,
     file,
+    takenAt,
+    photoDate: takenAt ? toDateStr(takenAt) : null,
+    date: takenAt ? toDateStr(takenAt) : viewDate,
     imageUrl: null,
     status: 'pending', // pending | analyzing | done | error
     items: [],
     note: '',
+    source: 'photo', // photo | label(영양성분표)
+    hint: '',
+    hintOpen: false,
     error: '',
     people: 1,
     portionPct: 100,
-    mealType: defaultMealType(file.lastModified || undefined),
+    mealType: defaultMealType(takenAt ?? undefined),
 });
 
 // 인원수로 나누고 먹은 양을 반영한 1인분 환산 비율
@@ -86,6 +105,7 @@ const toMeals = (entry) => {
         const baseName = it.name || '음식';
         return {
             name: w > 0 ? `${baseName} (${w}g)` : baseName,
+            date: entry.date,
             type: entry.mealType,
             calories: adj(it.calories_kcal),
             protein: adj(it.protein_g),
@@ -156,13 +176,13 @@ const PhotoMealModal = ({ isOpen, onClose, onConfirm, date }) => {
             const dataUrl = target.imageUrl || (await resizeImage(target.file));
             if (runId !== runIdRef.current) return;
             patchEntry(target.id, { imageUrl: dataUrl });
-            const result = await analyzeFoodImage(dataUrl);
+            const result = await analyzeFoodImage(dataUrl, target.hint);
             if (runId !== runIdRef.current) return;
             if (!result.items.length) {
                 patchEntry(target.id, { status: 'error', error: '사진에서 음식을 찾지 못했어요. 다른 사진으로 시도해보세요.' });
                 return;
             }
-            patchEntry(target.id, { status: 'done', items: result.items, note: result.note || '' });
+            patchEntry(target.id, { status: 'done', items: result.items, note: result.note || '', source: result.source });
         } catch (err) {
             if (runId !== runIdRef.current) return;
             console.error('분석 실패', err);
@@ -175,7 +195,9 @@ const PhotoMealModal = ({ isOpen, onClose, onConfirm, date }) => {
         e.target.value = '';
         if (!files.length) return;
         const runId = ++runIdRef.current;
-        const newEntries = files.map(makeEntry);
+        const takenAts = await Promise.all(files.map(readPhotoTakenAt));
+        if (runId !== runIdRef.current) return;
+        const newEntries = files.map((file, i) => makeEntry(file, takenAts[i], date));
         setEntries(newEntries);
         setCurrent(0);
         // 분당 요청 한도를 넘지 않도록 한 장씩 순차 분석 (첫 장 확인하는 동안 나머지는 뒤에서 진행)
@@ -274,12 +296,13 @@ const PhotoMealModal = ({ isOpen, onClose, onConfirm, date }) => {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                         <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.5 }}>
                             음식 사진을 올리면 AI가 음식·무게·탄단지·칼로리를 추정해요.
+                            영양성분표 사진은 표의 숫자를 그대로 읽어요.
                             결과는 저장 전에 직접 확인하고 수정할 수 있어요.
                             앨범에서는 최대 {MAX_PHOTOS}장까지 한 번에 고를 수 있어요.
                         </p>
                         {noKey && (
                             <div style={{ background: '#3a2a12', border: '1px solid #6b4a1a', color: '#f1c27d', padding: '0.75rem', borderRadius: '8px', fontSize: '0.82rem', lineHeight: 1.5 }}>
-                                ⚠️ Gemini API 키가 없어요. <code>.env</code>에 <code>VITE_GEMINI_API_KEY</code>를 넣고 앱을 다시 시작하세요.
+                                ⚠️ AI 분석을 쓸 수 없어요. <code>.env</code>에 Supabase 설정(또는 로컬 개발용 <code>VITE_GEMINI_API_KEY</code>)을 넣고 앱을 다시 시작하세요.
                             </div>
                         )}
                         {/* 촬영: capture로 카메라 직행 / 앨범·파일: capture 없이 네이티브 선택기(여러 장 선택 가능) */}
@@ -357,10 +380,85 @@ const PhotoMealModal = ({ isOpen, onClose, onConfirm, date }) => {
                         <div style={{ background: '#161616', borderRadius: '10px', padding: '0.75rem 0.9rem', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                             {entry.imageUrl && <img src={entry.imageUrl} alt="음식" style={{ width: '54px', height: '54px', objectFit: 'cover', borderRadius: '8px' }} />}
                             <div style={{ fontSize: '0.88rem', color: 'var(--text-primary)', lineHeight: 1.4 }}>
-                                <strong>이거 드신 거 맞나요?</strong>
-                                <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>아래 값을 확인하고 필요하면 수정하세요.</div>
+                                <strong>{entry.source === 'label' ? '성분표를 읽었어요. 맞나요?' : '이거 드신 거 맞나요?'}</strong>
+                                <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                                    {entry.takenAt && <>{formatTakenAt(entry.takenAt)} 촬영 · </>}아래 값을 확인하고 필요하면 수정하세요.
+                                </div>
                             </div>
                         </div>
+
+                        {/* 인식이 틀렸을 때만 펼치는 메모 → 다시 분석 (기본 흐름엔 단계 추가 없음) */}
+                        {entry.hintOpen ? (
+                            <div style={{ background: '#161616', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
+                                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                    <input
+                                        autoFocus
+                                        value={entry.hint}
+                                        onChange={(e) => updateCurrent({ hint: e.target.value })}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && !e.nativeEvent.isComposing && entry.hint.trim()) retry();
+                                        }}
+                                        placeholder="예: 밥 반 공기, 곱빼기, 편의점 도시락"
+                                        style={{ ...numStyle, textAlign: 'left' }}
+                                    />
+                                    <button
+                                        onClick={retry}
+                                        disabled={!entry.hint.trim()}
+                                        style={{ ...primaryBtn, flexShrink: 0, padding: '0.4rem 0.75rem', fontSize: '0.82rem', opacity: entry.hint.trim() ? 1 : 0.5 }}
+                                    >
+                                        <RefreshCw size={14} /> 다시 분석
+                                    </button>
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                                    {HINT_CHIPS.map((chip) => (
+                                        <button
+                                            key={chip}
+                                            onClick={() => updateCurrent({ hint: entry.hint.trim() ? `${entry.hint.trim()}, ${chip}` : chip })}
+                                            style={{
+                                                padding: '0.25rem 0.6rem', borderRadius: '999px', fontSize: '0.75rem', cursor: 'pointer',
+                                                border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)',
+                                            }}
+                                        >
+                                            + {chip}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => updateCurrent({ hintOpen: true })}
+                                style={{
+                                    alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '0.35rem',
+                                    fontSize: '0.8rem', color: 'var(--text-secondary)', background: 'transparent',
+                                    border: 'none', cursor: 'pointer', padding: 0,
+                                }}
+                            >
+                                <PenLine size={14} /> 다르게 인식됐나요? 메모 남기고 다시 분석
+                            </button>
+                        )}
+
+                        {/* 촬영일이 지금 보는 날짜와 다를 때만 어느 날로 기록할지 선택 */}
+                        {entry.photoDate && entry.photoDate !== date && (
+                            <div>
+                                <div style={labelStyle}>어느 날로 기록할까요?</div>
+                                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                    {[[entry.photoDate, '찍은 날'], [date, '지금 보는 날']].map(([d, lbl]) => (
+                                        <button
+                                            key={d}
+                                            onClick={() => updateCurrent({ date: d })}
+                                            style={{
+                                                flex: 1, padding: '0.45rem 0', borderRadius: '8px', fontSize: '0.85rem', cursor: 'pointer',
+                                                border: `1px solid ${entry.date === d ? '#EB5757' : 'var(--border-color)'}`,
+                                                background: entry.date === d ? 'rgba(235,87,87,0.15)' : 'transparent',
+                                                color: entry.date === d ? '#EB5757' : 'var(--text-secondary)', fontWeight: 600,
+                                            }}
+                                        >
+                                            {shortDate(d)} ({lbl})
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         {/* 끼니 종류 */}
                         <div>
@@ -501,7 +599,7 @@ const PhotoMealModal = ({ isOpen, onClose, onConfirm, date }) => {
                                 : <><Check size={15} /> 남은 사진 모두 저장 ({restDoneCount}장)</>}
                         </button>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.35rem', textAlign: 'center' }}>
-                            확인 안 한 사진은 1명·전부 기준, 사진 시각으로 정한 끼니로 저장돼요.
+                            확인 안 한 사진은 1명·전부 기준으로, 촬영 시각이 있으면 그 날짜·끼니로 저장돼요.
                         </div>
                     </div>
                 )}

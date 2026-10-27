@@ -17,7 +17,8 @@ const DayBlock = ({ date, meals, allMeals, onUpdateMeal, onDeleteMeal, onAddMeal
     }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
     const handlePhotoConfirm = (newMeals) => {
-        newMeals.forEach((m) => onAddMeal({ ...m, date }));
+        // 사진 촬영일로 기록하는 경우가 있으므로 meal에 date가 있으면 그걸 우선
+        newMeals.forEach((m) => onAddMeal({ date, ...m }));
     };
 
     return (
