@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { X, Camera, Image as ImageIcon, Minus, Plus, Trash2, Check, RefreshCw, Loader2, Sparkles, SkipForward, AlertCircle, PenLine } from 'lucide-react';
+import { X, Camera, Image as ImageIcon, Minus, Plus, Trash2, Check, RefreshCw, Loader2, Sparkles, AlertCircle, PenLine } from 'lucide-react';
 import { analyzeFoodImage, hasGeminiKey } from '../utils/gemini';
 import { readPhotoTakenAt } from '../utils/exif';
 
@@ -88,6 +88,7 @@ const makeEntry = (file, takenAt, viewDate) => ({
     source: 'photo', // photo | label(영양성분표)
     hint: '',
     hintOpen: false,
+    excluded: false, // 여러 장 중 저장에서 뺀 사진
     error: '',
     people: 1,
     portionPct: 100,
@@ -138,10 +139,12 @@ const PhotoMealModal = ({ isOpen, onClose, onConfirm, date }) => {
 
     const entry = entries[current];
     const isMulti = entries.length > 1;
-    const hasNext = current + 1 < entries.length;
-    const rest = entries.slice(current);
-    const restAnalyzing = rest.some((e) => e.status === 'pending' || e.status === 'analyzing');
-    const restDoneCount = rest.filter((e) => e.status === 'done').length;
+    // 여러 장: 뺀 사진·분석 실패한 사진을 제외하고 맨 아래 확인 버튼으로 한 번에 저장
+    const included = entries.filter((e) => !e.excluded);
+    const waitingCount = included.filter((e) => e.status === 'pending' || e.status === 'analyzing').length;
+    const savable = included.filter((e) => e.status === 'done');
+    const failedCount = included.filter((e) => e.status === 'error').length;
+    const savableKcal = savable.flatMap(toMeals).reduce((sum, m) => sum + m.calories, 0);
 
     const factor = entry ? factorOf(entry) : 1;
     const adj = (v) => Math.round((Number(v) || 0) * factor);
@@ -209,11 +212,6 @@ const PhotoMealModal = ({ isOpen, onClose, onConfirm, date }) => {
 
     const retry = () => analyzeEntry(entry, runIdRef.current);
 
-    const goNext = () => {
-        if (hasNext) setCurrent(current + 1);
-        else close();
-    };
-
     const updateCurrent = (patch) => patchEntry(entry.id, patch);
 
     const updateItem = (idx, key, value) =>
@@ -223,12 +221,12 @@ const PhotoMealModal = ({ isOpen, onClose, onConfirm, date }) => {
 
     const handleConfirm = () => {
         onConfirm(toMeals(entry));
-        goNext();
+        close();
     };
 
-    // 현재 사진 + 아직 확인 안 한 나머지 사진을 AI 추정값 그대로 한 번에 저장
+    // 안 열어본 사진도 AI 추정값 그대로 함께 저장
     const handleSaveAll = () => {
-        onConfirm(rest.filter((e) => e.status === 'done').flatMap(toMeals));
+        onConfirm(savable.flatMap(toMeals));
         close();
     };
 
@@ -260,34 +258,41 @@ const PhotoMealModal = ({ isOpen, onClose, onConfirm, date }) => {
                     <button onClick={close} aria-label="닫기"><X size={22} color="var(--text-secondary)" /></button>
                 </div>
 
-                {/* 여러 장 선택 시 진행 상황 */}
+                {/* 여러 장 선택 시: 썸네일을 눌러 사진끼리 오가며 수정 */}
                 {isMulti && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '1rem' }}>
                         <div style={{ display: 'flex', gap: '0.4rem', overflowX: 'auto', paddingBottom: '0.15rem' }}>
                             {entries.map((en, i) => (
-                                <div
+                                <button
                                     key={en.id}
+                                    onClick={() => setCurrent(i)}
+                                    aria-label={`${i + 1}번째 사진 보기`}
                                     style={{
-                                        position: 'relative', flexShrink: 0, width: '40px', height: '40px',
-                                        borderRadius: '8px', overflow: 'hidden', background: '#161616',
+                                        position: 'relative', flexShrink: 0, width: '44px', height: '44px', padding: 0,
+                                        borderRadius: '8px', overflow: 'hidden', background: '#161616', cursor: 'pointer',
                                         border: `2px solid ${i === current ? '#EB5757' : 'var(--border-color)'}`,
-                                        opacity: i < current ? 0.45 : 1,
+                                        opacity: en.excluded ? 0.4 : 1,
                                     }}
                                 >
                                     {en.imageUrl && <img src={en.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-                                    {(i < current || en.status === 'analyzing' || en.status === 'error') && (
+                                    {(en.excluded || en.status === 'analyzing' || en.status === 'error') && (
                                         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.45)' }}>
-                                            {i < current ? <Check size={16} color="#fff" />
+                                            {en.excluded ? <X size={18} color="#fff" />
                                                 : en.status === 'analyzing' ? <Loader2 size={16} color="#fff" className="spin" />
                                                     : <AlertCircle size={16} color="#EB5757" />}
                                         </div>
                                     )}
-                                </div>
+                                </button>
                             ))}
                         </div>
                         <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
                             {current + 1} / {entries.length}
                         </span>
+                    </div>
+                )}
+                {isMulti && entry?.excluded && (
+                    <div style={{ background: '#161616', border: '1px dashed var(--border-color)', borderRadius: '8px', padding: '0.6rem 0.75rem', marginBottom: '1rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                        이 사진은 저장에서 빠져요. 맨 아래 <strong>다시 넣기</strong>로 되돌릴 수 있어요.
                     </div>
                 )}
 
@@ -358,11 +363,7 @@ const PhotoMealModal = ({ isOpen, onClose, onConfirm, date }) => {
                         {entry.imageUrl && <img src={entry.imageUrl} alt="음식" style={{ maxWidth: '100%', maxHeight: '160px', borderRadius: '10px' }} />}
                         <p style={{ color: '#EB5757', textAlign: 'center', fontSize: '0.9rem', lineHeight: 1.5 }}>{entry.error}</p>
                         <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
-                            {isMulti ? (
-                                <button onClick={goNext} style={{ ...secondaryBtn, flex: 1 }}>
-                                    <SkipForward size={15} /> 건너뛰기
-                                </button>
-                            ) : (
+                            {!isMulti && (
                                 <button onClick={reset} style={{ ...secondaryBtn, flex: 1 }}>
                                     <ImageIcon size={15} /> 다른 사진
                                 </button>
@@ -569,37 +570,40 @@ const PhotoMealModal = ({ isOpen, onClose, onConfirm, date }) => {
                             </div>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
-                            {isMulti ? (
-                                <button onClick={goNext} style={{ ...secondaryBtn, flex: 1 }}>
-                                    <SkipForward size={15} /> 건너뛰기
-                                </button>
-                            ) : (
+                        {!isMulti && (
+                            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
                                 <button onClick={reset} style={{ ...secondaryBtn, flex: 1 }}>
                                     <RefreshCw size={15} /> 다시 촬영
                                 </button>
-                            )}
-                            <button onClick={handleConfirm} disabled={!entry.items.length} style={{ ...primaryBtn, flex: 2, opacity: entry.items.length ? 1 : 0.5 }}>
-                                <Check size={16} /> {entry.items.length}개 저장{hasNext ? ' 후 다음' : ''}
-                            </button>
-                        </div>
+                                <button onClick={handleConfirm} disabled={!entry.items.length} style={{ ...primaryBtn, flex: 2, opacity: entry.items.length ? 1 : 0.5 }}>
+                                    <Check size={16} /> {entry.items.length}개 저장
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
 
-                {/* 여러 장: 나머지는 하나씩 확인하지 않고 AI 추정값 그대로 저장 */}
-                {isMulti && hasNext && (
-                    <div style={{ marginTop: '0.75rem' }}>
-                        <button
-                            onClick={handleSaveAll}
-                            disabled={restAnalyzing || !restDoneCount}
-                            style={{ ...secondaryBtn, width: '100%', opacity: restAnalyzing || !restDoneCount ? 0.5 : 1 }}
-                        >
-                            {restAnalyzing
-                                ? <><Loader2 size={15} className="spin" /> 나머지 사진 분석 중…</>
-                                : <><Check size={15} /> 남은 사진 모두 저장 ({restDoneCount}장)</>}
-                        </button>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.35rem', textAlign: 'center' }}>
-                            확인 안 한 사진은 1명·전부 기준으로, 촬영 시각이 있으면 그 날짜·끼니로 저장돼요.
+                {/* 여러 장: 확인 한 번으로 전부 저장 */}
+                {isMulti && (
+                    <div style={{ marginTop: '1.1rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button onClick={() => updateCurrent({ excluded: !entry.excluded })} style={{ ...secondaryBtn, flex: 1 }}>
+                                {entry.excluded ? <><Plus size={15} /> 다시 넣기</> : <><Minus size={15} /> 이 사진 빼기</>}
+                            </button>
+                            <button
+                                onClick={handleSaveAll}
+                                disabled={waitingCount > 0 || !savable.length}
+                                style={{ ...primaryBtn, flex: 2, opacity: waitingCount > 0 || !savable.length ? 0.5 : 1 }}
+                            >
+                                {waitingCount > 0
+                                    ? <><Loader2 size={16} className="spin" /> 분석 중… {waitingCount}장 남음</>
+                                    : <><Check size={16} /> 확인 · {savable.length}장 모두 저장</>}
+                            </button>
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.4rem', textAlign: 'center', lineHeight: 1.5 }}>
+                            {waitingCount === 0 && savable.length > 0 && <>총 {savableKcal.toLocaleString()} kcal · </>}
+                            {failedCount > 0 && <>분석 실패 {failedCount}장은 빼고 저장 · </>}
+                            안 열어본 사진도 AI 추정값 그대로 저장돼요.
                         </div>
                     </div>
                 )}
