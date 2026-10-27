@@ -13,7 +13,7 @@
 - **가운데 피드** — 선택한 달이 큰 제목으로 뜨고, 그 아래로 날짜별 블록이 이어집니다. 앱을 열면 오늘 날짜로 자동 스크롤됩니다.
 - **날짜별 표** — 한 줄에 `음식 / 칼로리 / 단백질 / 탄수 / 지방 / 섭취량 / 식사 종류`를 인라인으로 입력합니다. 맨 아래 빈 줄(`음식 추가…`)에 입력하면 새 행이 바로 추가됩니다. 식사 종류는 아침·점심·저녁·간식·건강식·치팅데이로 색상 태그가 붙습니다.
 - **합계 줄** — 그날의 칼로리/단백질/탄수/지방 합계를 자동 계산해 보여 줍니다. 칼로리를 비워 두고 탄단지만 넣으면 4·4·9 기준으로 환산값이 자동 반영됩니다.
-- **사진으로 추가** — 음식 사진을 올리면 Gemini 비전 모델이 항목별 중량과 영양을 추정해 표에 채워 줍니다.
+- **사진으로 추가** — 음식 사진을 올리면 Gemini 비전 모델이 항목별 중량과 영양을 추정해 표에 채워 줍니다. 앨범에서 여러 장을 한 번에 고르면 사진마다 차례로 확인할 수 있고, 영양성분표 사진은 표의 숫자를 그대로 읽습니다. 촬영 시각(EXIF)이 있으면 그 날짜·끼니로 기록하고, 인식이 틀리면 메모(예: "밥 반 공기")를 남겨 다시 분석할 수 있습니다.
 - **오늘 버튼** — 오른쪽 아래 버튼으로 언제든 오늘 날짜로 돌아옵니다.
 
 ## 주요 기능
@@ -30,8 +30,22 @@ React 19 · Vite 7 · Dexie(IndexedDB) · Supabase · vite-plugin-pwa · Google 
 
 ## AI 모델 (Gemini)
 
-음식 사진 분석과 음식 이름(텍스트) 분석 모두 Google Gemini API를 클라이언트에서 직접 호출합니다.
+음식 사진 분석과 음식 이름(텍스트) 분석 모두 Google Gemini API를 Supabase Edge Function(`supabase/functions/gemini`)을 거쳐 호출합니다.
+API 키는 Supabase secret에만 있고 브라우저 번들에는 들어가지 않으며, 로그인한 사용자만 호출할 수 있습니다.
 두 호출은 같은 폴백 루프(`requestGeminiJson`)를 공유하므로, 기본 모델을 바꾸면 양쪽에 동시에 적용됩니다.
+무료 한도 초과(429)가 나면 다음 모델로 자동으로 넘어갑니다.
+
+### Edge Function 배포 (1회)
+
+```bash
+npx supabase login
+npx supabase secrets set GEMINI_API_KEY=<Gemini 키> --project-ref <프로젝트 ref>
+# (선택) 특정 계정만 허용
+npx supabase secrets set ALLOWED_EMAILS=me@example.com --project-ref <프로젝트 ref>
+npx supabase functions deploy gemini --project-ref <프로젝트 ref>
+```
+
+로컬 개발에서 프록시 없이 바로 호출하려면 `.env`에 `VITE_GEMINI_API_KEY`를 넣으면 됩니다. (배포 빌드에는 넣지 말 것)
 기본 모델을 **`gemini-3.1-flash-lite` → `gemini-3.5-flash-lite`** 로 변경했습니다.
 
 이유는 두 가지입니다.

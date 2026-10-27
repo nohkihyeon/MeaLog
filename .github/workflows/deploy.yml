@@ -39,7 +39,7 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
+          # Gemini 키는 번들에 넣지 않는다 — Supabase Edge Function(gemini)의 secret으로만 관리
 
       # 첫 실행 시 Pages를 자동 활성화
       - uses: actions/configure-pages@v5
