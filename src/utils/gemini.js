@@ -107,6 +107,7 @@ async function requestGeminiJson(parts, responseSchema) {
     };
 
     let lastErr;
+    let rateLimited = false;
     for (const model of MODELS) {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`;
         try {
@@ -117,8 +118,10 @@ async function requestGeminiJson(parts, responseSchema) {
             });
             if (!res.ok) {
                 const errText = await res.text();
-                // 모델 미지원/404 면 다음 모델로 폴백, 그 외 에러는 즉시 throw
-                if (res.status === 404 || res.status === 400) {
+                // 모델 미지원(404/400) 또는 무료 한도 초과(429)면 다음 모델로 폴백, 그 외 에러는 즉시 throw
+                // (모델별로 무료 한도가 따로 잡히므로 한 모델이 막혀도 다음 모델은 쓸 수 있다)
+                if (res.status === 404 || res.status === 400 || res.status === 429) {
+                    if (res.status === 429) rateLimited = true;
                     lastErr = new Error(`${model}: ${res.status} ${errText.slice(0, 200)}`);
                     continue;
                 }
@@ -134,6 +137,9 @@ async function requestGeminiJson(parts, responseSchema) {
             // 네트워크 등 일반 에러는 폴백하지 않고 종료
             if (!/404|400/.test(String(e.message))) throw e;
         }
+    }
+    if (rateLimited) {
+        throw new Error('Gemini 무료 사용량 한도에 걸렸어요. 1분 뒤(분당 한도) 또는 내일(일일 한도) 다시 시도해주세요.');
     }
     throw lastErr || new Error('사용 가능한 Gemini 모델을 찾지 못했습니다.');
 }
