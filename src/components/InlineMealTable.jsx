@@ -213,6 +213,23 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
         return Array.from(map.values());
     }, [allMeals, meals]);
 
+    // 방향키 ↑/↓ 로 같은 열의 위/아래 행으로 이동 (엑셀처럼).
+    // 이름 칸 추천 목록이 열려 있으면 MealRow 쪽에서 먼저 처리(preventDefault)하므로 건드리지 않는다.
+    const handleGridKeyDown = (e) => {
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+        if (e.isDefaultPrevented() || e.nativeEvent.isComposing || e.keyCode === 229) return;
+        const col = e.target.dataset?.col;
+        if (!col) return;
+        e.preventDefault(); // 숫자 칸에서 값이 ±1 되는 기본 동작 막기
+        const row = e.target.closest('[data-meal-row]');
+        const sibling = e.key === 'ArrowDown' ? row?.nextElementSibling : row?.previousElementSibling;
+        const target = sibling?.matches('[data-meal-row]') ? sibling.querySelector(`[data-col="${col}"]`) : null;
+        if (!target) return;
+        target.focus();
+        // 바로 덮어쓸 수 있게 기존 값 전체 선택 (select 박스는 해당 없음)
+        if (typeof target.select === 'function') target.select();
+    };
+
     return (
         <div className="meal-table-scroll">
             <style>{`
@@ -227,7 +244,7 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
                 .ai-spin{animation:ai-spin 1s linear infinite;}
                 @keyframes ai-spin{to{transform:rotate(360deg)}}
             `}</style>
-            <div style={{ minWidth: '780px', fontSize: '0.95rem' }}>
+            <div style={{ minWidth: '780px', fontSize: '0.95rem' }} onKeyDown={handleGridKeyDown}>
                 {/* Header */}
                 <div style={{
                     display: 'grid',
@@ -412,6 +429,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
     return (
         <div
             ref={ref}
+            data-meal-row
             style={{
                 display: 'grid',
                 gridTemplateColumns: GRID_TEMPLATE,
@@ -430,6 +448,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                 <div style={{ flex: 1, position: 'relative' }}>
                     <input
                         name="meal-name"
+                        data-col="name"
                         value={displayName}
                         placeholder="New"
                         onChange={e => {
@@ -566,6 +585,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                 <input
                     type="number"
                     inputMode="decimal"
+                    data-col="calories"
                     value={meal.calories}
                     onChange={e => onUpdate(meal.id, { calories: e.target.value })}
                     title={macroKcal > 0 ? `탄단지 환산 약 ${macroKcal}kcal (직접 입력하면 그 값이 우선)` : undefined}
@@ -598,6 +618,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                 <input
                     type="number"
                     inputMode="decimal"
+                    data-col="protein"
                     value={meal.protein}
                     onChange={e => onUpdate(meal.id, { protein: e.target.value })}
                     style={{ border: 'none', padding: '0', width: '100%', textAlign: 'right', outline: 'none' }}
@@ -608,6 +629,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                 <input
                     type="number"
                     inputMode="decimal"
+                    data-col="carbs"
                     value={meal.carbs ?? ''}
                     onChange={e => onUpdate(meal.id, { carbs: e.target.value })}
                     style={{ border: 'none', padding: '0', width: '100%', textAlign: 'right', outline: 'none' }}
@@ -618,6 +640,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                 <input
                     type="number"
                     inputMode="decimal"
+                    data-col="fat"
                     value={meal.fat ?? ''}
                     onChange={e => onUpdate(meal.id, { fat: e.target.value })}
                     style={{ border: 'none', padding: '0', width: '100%', textAlign: 'right', outline: 'none' }}
@@ -628,6 +651,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                 <input
                     type="number"
                     inputMode="decimal"
+                    data-col="intake"
                     value={meal.intake || ''}
                     onChange={e => onUpdate(meal.id, { intake: e.target.value })}
                     placeholder=""
@@ -637,6 +661,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
 
             <div style={{ paddingRight: '0.5rem' }}>
                 <select
+                    data-col="type"
                     value={meal.type}
                     onChange={e => onUpdate(meal.id, { type: e.target.value })}
                     style={{
