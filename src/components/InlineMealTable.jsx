@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Trash2, Sparkles, Loader2, AlertCircle } from 'lucide-react';
+import { flushSync } from 'react-dom';
+import { Trash2, Plus, Sparkles, Loader2, AlertCircle } from 'lucide-react';
 import { calcMacroKcal, round1 } from '../utils/nutrition';
 import { analyzeFoodName, hasGeminiKey } from '../utils/gemini';
 import AiFoodModal from './AiFoodModal';
@@ -14,7 +15,7 @@ const MEAL_TYPES = [
 ];
 
 // Header and rows are separate grid containers, so they must share one template
-const GRID_TEMPLATE = 'minmax(150px, 2fr) 110px 95px 85px 80px 90px 105px 36px';
+const GRID_TEMPLATE = 'minmax(150px, 2fr) 110px 95px 85px 80px 90px 105px 60px';
 
 const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) => {
     // We manage the "next" item's ID in state so we can render it as a stable component
@@ -24,6 +25,9 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
     // Optimistic state to prevent UI jitter/disappearance during async DB updates.
     // Maps ID -> Full Meal Object
     const [overrides, setOverrides] = useState({});
+
+    // 행 사이에 끼워 넣은 빈 행. ghost 행처럼 처음 입력할 때 DB에 추가된다.
+    const [insertDraft, setInsertDraft] = useState(null);
 
     // Refs for tracking focus
     const rowRefs = useRef({});
@@ -47,12 +51,15 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
             }
         });
 
-        // 2. Add new meals from overrides that aren't in props.meals yet
-        Object.values(overrides).forEach(meal => {
-            if (!seenIds.has(meal.id)) {
-                result.push(meal);
-                seenIds.add(meal.id);
-            }
+        // 2. Add new meals from overrides (and the inserted draft row) that aren't in props.meals yet.
+        // 중간에 삽입한 행은 timestamp 기준으로 제자리에, 나머지는 맨 뒤에 둔다.
+        const pending = Object.values(overrides).filter(meal => !seenIds.has(meal.id));
+        if (insertDraft && !seenIds.has(insertDraft.id)) pending.push(insertDraft);
+        pending.forEach(meal => {
+            const at = meal.timestamp == null ? -1 : result.findIndex(m => (m.timestamp ?? Infinity) > meal.timestamp);
+            if (at === -1) result.push(meal);
+            else result.splice(at, 0, meal);
+            seenIds.add(meal.id);
         });
 
         // 3. Determine default type from the last real meal
@@ -74,7 +81,7 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
         });
 
         return result;
-    }, [meals, overrides, nextId]);
+    }, [meals, overrides, insertDraft, nextId]);
 
     // Cleanup overrides when DB catches up
     useEffect(() => {
@@ -177,18 +184,59 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
             return;
         }
 
+        if (item?.isDraft && !promotedIds.current.has(id)) {
+            promoteDraft(item, updates);
+            return;
+        }
+
         // 1. Optimistic Update
         setOverrides(prev => {
             if (!item) return prev;
             return {
                 ...prev,
-                [id]: { ...item, ...updates }
+                [id]: { ...(prev[id] ?? item), ...updates }
             };
         });
 
         // 2. Trigger DB Update
         onUpdate(id, updates);
     };
+
+    // 삽입한 빈 행에 처음 입력하면 그때 DB에 추가 (timestamp는 삽입할 때 정한 값 유지)
+    const promoteDraft = (draft, updates) => {
+        const newMeal = { ...draft, ...updates };
+        delete newMeal.isDraft;
+        promotedIds.current.add(draft.id);
+        setOverrides(prev => ({ ...prev, [newMeal.id]: newMeal }));
+        setInsertDraft(null);
+        onAdd(newMeal);
+    };
+
+    // 누른 행 바로 아래에 빈 행을 끼워 넣는다. 끼니 종류는 누른 행을 따르고,
+    // timestamp를 위아래 행 사이 값으로 줘서 저장 후에도 그 자리에 정렬되게 한다.
+    const handleInsertBelow = (meal) => {
+        const rows = itemsToRender.filter(m => !m.isGhost && !m.isDraft);
+        const next = rows[rows.findIndex(m => m.id === meal.id) + 1];
+        const base = meal.timestamp ?? Date.now();
+        const nextTs = next ? (next.timestamp ?? Date.now()) : Date.now() + 1;
+        const id = crypto.randomUUID();
+        // 모바일에서도 키보드가 바로 뜨도록 클릭 핸들러 안에서 동기로 그린 뒤 포커스
+        flushSync(() => setInsertDraft({
+            id,
+            name: '',
+            calories: '',
+            protein: '',
+            carbs: '',
+            fat: '',
+            intake: '',
+            type: meal.type,
+            timestamp: base < nextTs ? (base + nextTs) / 2 : base,
+            isDraft: true
+        }));
+        rowRefs.current[id]?.querySelector('input[name="meal-name"]')?.focus();
+    };
+
+    const discardDraft = (id) => setInsertDraft(d => (d?.id === id ? null : d));
 
     // 5. Gather unique recommendations from all history
     const recommendations = useMemo(() => {
@@ -243,8 +291,18 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
                 .ai-fill-btn:hover{background:rgba(187,107,217,0.28);box-shadow:0 0 8px rgba(187,107,217,0.35);}
                 .ai-spin{animation:ai-spin 1s linear infinite;}
                 @keyframes ai-spin{to{transform:rotate(360deg)}}
+                .row-actions{display:flex;gap:4px;opacity:0;visibility:hidden;transition:opacity .15s ease,visibility .15s;}
+                .meal-row:hover .row-actions,.meal-row:focus-within .row-actions{opacity:1;visibility:visible;}
+                .row-action-btn{
+                    display:flex;align-items:center;justify-content:center;
+                    width:24px;height:24px;border-radius:6px;
+                    border:1px solid var(--border-color);color:var(--text-tertiary);
+                    transition:all .15s ease;
+                }
+                .row-action-btn.add:hover{color:#27AE60;border-color:rgba(39,174,96,0.5);background:rgba(39,174,96,0.12);}
+                .row-action-btn.delete:hover{color:#EB5757;border-color:rgba(235,87,87,0.5);background:rgba(235,87,87,0.12);}
             `}</style>
-            <div style={{ minWidth: '780px', fontSize: '0.95rem' }} onKeyDown={handleGridKeyDown}>
+            <div style={{ minWidth: '804px', fontSize: '0.95rem' }} onKeyDown={handleGridKeyDown}>
                 {/* Header */}
                 <div style={{
                     display: 'grid',
@@ -272,7 +330,10 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
                         meal={meal}
                         onUpdate={handleRowUpdate}
                         onDelete={onDelete}
+                        onInsertBelow={handleInsertBelow}
+                        onDiscardDraft={discardDraft}
                         isGhost={meal.isGhost}
+                        isDraft={meal.isDraft}
                         recommendations={recommendations}
                         ref={el => rowRefs.current[meal.id] = el}
                     />
@@ -283,8 +344,7 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
 };
 
 // Sub-component for single row
-const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommendations }, ref) => {
-    const [isHovered, setIsHovered] = useState(false);
+const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, onInsertBelow, onDiscardDraft, isGhost, isDraft, recommendations }, ref) => {
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(-1);
 
@@ -430,6 +490,13 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
         <div
             ref={ref}
             data-meal-row
+            className="meal-row"
+            // 삽입만 하고 아무것도 적지 않은 채 행을 벗어나면 빈 행은 치운다 (조합 중인 글자가 있으면 유지)
+            onBlur={isDraft ? (e) => {
+                if (e.currentTarget.contains(e.relatedTarget)) return;
+                if (e.currentTarget.querySelector('input[name="meal-name"]')?.value) return;
+                onDiscardDraft(meal.id);
+            } : undefined}
             style={{
                 display: 'grid',
                 gridTemplateColumns: GRID_TEMPLATE,
@@ -440,8 +507,6 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                 opacity: 1, // Stable opacity to prevent repaint during IME
                 position: 'relative'
             }}
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
         >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingRight: '1rem', position: 'relative' }}>
                 <div style={{ width: '1.2rem' }}></div>
@@ -459,6 +524,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                                 // every keystroke) without touching parent state / triggering
                                 // row promotion until the composition session finishes.
                                 setDraftName(val);
+                                setShowSuggestions(true);
                                 setSelectedIndex(-1);
                                 return;
                             }
@@ -470,7 +536,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
                             setDraftName(null);
                             commitName(e.target.value);
                         }}
-                        onFocus={() => setShowSuggestions(true)}
+                        // 추천 목록은 포커스만으로는 열지 않고 입력을 시작해야 연다 (방향키 ↑/↓가 행 이동에 쓰이도록)
                         onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
                         onKeyDown={handleKeyDown}
                         style={{ border: 'none', padding: '0', width: '100%', outline: 'none', background: 'transparent' }}
@@ -683,10 +749,28 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, isGhost, recommend
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'center' }}>
-                {!isGhost && isHovered && (
-                    <button onClick={() => onDelete(meal.id)} style={{ color: 'var(--text-tertiary)' }}>
-                        <Trash2 size={16} />
-                    </button>
+                {/* 마우스를 올리거나 행 안에 포커스가 있을 때만 표시. Tab 순서에는 넣지 않는다 */}
+                {!isGhost && !isDraft && (
+                    <div className="row-actions">
+                        <button
+                            className="row-action-btn add"
+                            onClick={() => onInsertBelow(meal)}
+                            tabIndex={-1}
+                            title="아래에 행 추가"
+                            aria-label="아래에 행 추가"
+                        >
+                            <Plus size={14} />
+                        </button>
+                        <button
+                            className="row-action-btn delete"
+                            onClick={() => onDelete(meal.id)}
+                            tabIndex={-1}
+                            title="삭제"
+                            aria-label="삭제"
+                        >
+                            <Trash2 size={14} />
+                        </button>
+                    </div>
                 )}
             </div>
         </div>

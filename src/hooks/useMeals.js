@@ -50,7 +50,8 @@ export const useMeals = () => {
         await db.meals.put({
             ...meal,
             id: meal.id || crypto.randomUUID(),
-            timestamp: Date.now(),
+            // 표 중간에 삽입한 행은 정렬 위치를 위해 timestamp를 미리 정해서 넘긴다
+            timestamp: meal.timestamp ?? Date.now(),
             updatedAt: Date.now(),
             deleted: 0,
         });
