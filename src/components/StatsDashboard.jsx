@@ -3,8 +3,20 @@ import { Flame, Target, TrendingUp, Sparkles, Trophy, ChevronRight, Apple, Setti
 import { getEffectiveCalories } from '../utils/nutrition';
 import CalorieBalanceCard from './CalorieBalanceCard';
 
+// 일간 보기에서 보여줄 날 수 (칼로리 밸런스 카드와 같은 값)
+const DAY_RANGE = 30;
+
+const dateKey = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// 차트의 바로 앞 버킷(지난 주/지난달/작년)을 요약 카드 비교용 형태로
+const prevBucket = (chartData, name) => {
+    const p = chartData[chartData.length - 2];
+    return p ? { avgCal: p.value, loggedDays: p.loggedDays, totalDays: p.totalDays, name } : null;
+};
+
 // Custom SVG Bar Chart Component supporting multi-metric overlay
-const BarChart = ({ data, visibleMetrics }) => {
+const BarChart = ({ data, visibleMetrics, targetCalorie }) => {
     const [hoveredIndex, setHoveredIndex] = useState(null);
     const [hoveredPos, setHoveredPos] = useState({ x: 0, y: 0 });
 
@@ -16,7 +28,9 @@ const BarChart = ({ data, visibleMetrics }) => {
         visibleMetrics.burn && d.burn != null ? d.burn : 0,
         visibleMetrics.active && d.active != null ? d.active : 0,
     ]);
-    const maxVal = Math.max(...values, 1000); // Prevent division by zero and scale nicely
+    // 목표선이 차트 맨 위에 붙지 않도록 목표의 110%까지는 축에 포함
+    const showTarget = visibleMetrics.calorie && targetCalorie > 0;
+    const maxVal = Math.max(...values, showTarget ? targetCalorie * 1.1 : 0, 1000); // Prevent division by zero and scale nicely
     const showKcalAxis = visibleMetrics.calorie || visibleMetrics.burn || visibleMetrics.active;
 
     // Compute max macro value for right-hand Y axis scaling
@@ -36,6 +50,8 @@ const BarChart = ({ data, visibleMetrics }) => {
     const chartWidth = 500 - paddingLeft - paddingRight;
     const barCount = data.length;
     const colWidth = chartWidth / barCount;
+    // 막대가 많으면(30일 등) 날짜 라벨이 겹치므로 오늘부터 거꾸로 N칸마다 하나씩만 표시
+    const labelStep = Math.ceil(barCount / 10);
 
     // Helper to get X coordinate of a column center
     const getColCenterX = (idx) => {
@@ -48,13 +64,18 @@ const BarChart = ({ data, visibleMetrics }) => {
         return height - paddingBottom - h;
     };
 
-    // Construct path for a macro line
+    // Construct path for a macro line — 기록 없는 기간은 0으로 떨어뜨리지 않고 선을 끊는다
     const getLinePath = (key) => {
-        const points = data.map((d, idx) => {
+        let path = '';
+        let pen = false;
+        data.forEach((d, idx) => {
+            if (!d.loggedDays) { pen = false; return; }
             const val = key === 'carbs' ? d.avgCarbs : key === 'protein' ? d.avgProtein : d.avgFat;
-            return `${getColCenterX(idx)},${getMacroY(val)}`;
+            const pt = `${getColCenterX(idx)},${getMacroY(val)}`;
+            path += pen ? ` L ${pt}` : ` M ${pt}`;
+            pen = true;
         });
-        return `M ${points.join(' L ')}`;
+        return path;
     };
 
     // 좌측 kcal 축용 Y 좌표 (소모/활동 라인)
@@ -127,25 +148,24 @@ const BarChart = ({ data, visibleMetrics }) => {
                     );
                 })}
 
-                {/* Bars (Calories) */}
+                {/* Bars (Calories) — 기록 없는 기간은 막대를 그리지 않는다 */}
                 {visibleMetrics.calorie && data.map((item, idx) => {
+                    if (!item.loggedDays) return null;
                     const barWidth = Math.min(colWidth * 0.45, 18);
                     const x = paddingLeft + idx * colWidth + (colWidth - barWidth) / 2;
                     const barHeight = (item.value / maxVal) * (height - paddingTop - paddingBottom);
                     const y = height - paddingBottom - barHeight;
                     const isHovered = hoveredIndex === idx;
+                    // 목표를 넘긴 만큼은 막대 윗부분을 진하게 칠해 초과량이 바로 보이게 한다
+                    const overHeight = showTarget && item.value > targetCalorie
+                        ? ((item.value - targetCalorie) / maxVal) * (height - paddingTop - paddingBottom)
+                        : 0;
 
                     return (
-                        <rect
+                        <g
                             key={idx}
-                            x={x}
-                            y={y}
-                            width={barWidth}
-                            height={Math.max(barHeight, 2)}
-                            rx="3"
-                            fill={isHovered ? 'var(--accent-primary)' : 'rgba(235, 87, 87, 0.35)'}
-                            style={{ transition: 'all 0.2s ease', cursor: 'pointer' }}
-                            onMouseEnter={(e) => {
+                            style={{ cursor: 'pointer' }}
+                            onMouseEnter={() => {
                                 setHoveredIndex(idx);
                                 setHoveredPos({
                                     x: x + barWidth / 2,
@@ -153,9 +173,56 @@ const BarChart = ({ data, visibleMetrics }) => {
                                 });
                             }}
                             onMouseLeave={() => setHoveredIndex(null)}
-                        />
+                        >
+                            <rect
+                                x={x}
+                                y={y}
+                                width={barWidth}
+                                height={Math.max(barHeight, 2)}
+                                rx="3"
+                                fill={isHovered ? 'var(--accent-primary)' : 'rgba(235, 87, 87, 0.35)'}
+                                style={{ transition: 'all 0.2s ease' }}
+                            />
+                            {overHeight > 0 && (
+                                <rect
+                                    x={x}
+                                    y={y}
+                                    width={barWidth}
+                                    height={overHeight}
+                                    rx="3"
+                                    fill={isHovered ? 'var(--accent-primary)' : 'rgba(235, 87, 87, 0.85)'}
+                                    style={{ transition: 'all 0.2s ease' }}
+                                />
+                            )}
+                        </g>
                     );
                 })}
+
+                {/* 목표 칼로리선 */}
+                {showTarget && (
+                    <g style={{ pointerEvents: 'none' }}>
+                        <line
+                            x1={paddingLeft}
+                            y1={getKcalY(targetCalorie)}
+                            x2={500 - paddingRight}
+                            y2={getKcalY(targetCalorie)}
+                            stroke="var(--accent-primary)"
+                            strokeWidth="1"
+                            strokeDasharray="3 3"
+                            opacity="0.7"
+                        />
+                        <text
+                            x={500 - paddingRight}
+                            y={getKcalY(targetCalorie) - 4}
+                            fill="var(--accent-primary)"
+                            fontSize="8"
+                            textAnchor="end"
+                            opacity="0.9"
+                        >
+                            목표 {targetCalorie.toLocaleString()}
+                        </text>
+                    </g>
+                )}
 
                 {/* Burn / Active Lines (좌측 kcal 축) */}
                 {visibleMetrics.burn && (
@@ -224,13 +291,13 @@ const BarChart = ({ data, visibleMetrics }) => {
                             {visibleMetrics.active && item.active != null && (
                                 <circle cx={cx} cy={getKcalY(item.active)} r={isHovered ? 4 : 2} fill={ACTIVE_COLOR} />
                             )}
-                            {visibleMetrics.carbs && (
+                            {visibleMetrics.carbs && item.loggedDays > 0 && (
                                 <circle cx={cx} cy={getMacroY(item.avgCarbs)} r={isHovered ? 4 : 2} fill="var(--accent-tertiary)" />
                             )}
-                            {visibleMetrics.protein && (
+                            {visibleMetrics.protein && item.loggedDays > 0 && (
                                 <circle cx={cx} cy={getMacroY(item.avgProtein)} r={isHovered ? 4 : 2} fill="var(--accent-quaternary)" />
                             )}
-                            {visibleMetrics.fat && (
+                            {visibleMetrics.fat && item.loggedDays > 0 && (
                                 <circle cx={cx} cy={getMacroY(item.avgFat)} r={isHovered ? 4 : 2} fill="var(--accent-secondary)" />
                             )}
 
@@ -253,7 +320,7 @@ const BarChart = ({ data, visibleMetrics }) => {
                             />
 
                             {/* X Axis Labels */}
-                            <text
+                            {(barCount - 1 - idx) % labelStep === 0 && <text
                                 x={cx}
                                 y={height - 8}
                                 fill={isHovered ? 'var(--text-primary)' : 'var(--text-secondary)'}
@@ -263,19 +330,19 @@ const BarChart = ({ data, visibleMetrics }) => {
                                 style={{ transition: 'all 0.2s ease' }}
                             >
                                 {item.label}
-                            </text>
+                            </text>}
                         </g>
                     );
                 })}
             </svg>
 
-            {/* Floating Tooltip */}
+            {/* Floating Tooltip — 위치 비율만큼 왼쪽으로 당겨서 양 끝에서도 카드 밖으로 잘리지 않게 */}
             {hoveredIndex !== null && (
                 <div style={{
                     position: 'absolute',
                     left: `${(hoveredPos.x / 500) * 100}%`,
                     top: `${(hoveredPos.y / height) * 100}%`,
-                    transform: 'translate(-50%, -105%)',
+                    transform: `translate(-${(hoveredPos.x / 500) * 100}%, -105%)`,
                     backgroundColor: 'var(--bg-tertiary)',
                     border: '1px solid var(--border-color)',
                     padding: '0.5rem 0.75rem',
@@ -294,7 +361,12 @@ const BarChart = ({ data, visibleMetrics }) => {
                     <span style={{ color: 'var(--text-secondary)', fontSize: '0.65rem', alignSelf: 'center', marginBottom: '2px' }}>
                         {data[hoveredIndex].periodLabel || data[hoveredIndex].label}
                     </span>
-                    {visibleMetrics.calorie && (
+                    {!data[hoveredIndex].loggedDays && (
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: '0.7rem', alignSelf: 'center' }}>
+                            식단 기록 없음
+                        </span>
+                    )}
+                    {visibleMetrics.calorie && data[hoveredIndex].loggedDays > 0 && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🔥 칼로리</span>
                             <span style={{ color: 'var(--accent-primary)' }}>
@@ -302,6 +374,17 @@ const BarChart = ({ data, visibleMetrics }) => {
                             </span>
                         </div>
                     )}
+                    {showTarget && data[hoveredIndex].loggedDays > 0 && (() => {
+                        const diff = data[hoveredIndex].value - targetCalorie;
+                        return (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🎯 목표 대비</span>
+                                <span style={{ color: diff > 0 ? '#EB5757' : '#27AE60' }}>
+                                    {diff > 0 ? '+' : ''}{Math.round(diff).toLocaleString()} kcal
+                                </span>
+                            </div>
+                        );
+                    })()}
                     {visibleMetrics.burn && data[hoveredIndex].burn != null && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>⚡ 소모</span>
@@ -318,7 +401,7 @@ const BarChart = ({ data, visibleMetrics }) => {
                             </span>
                         </div>
                     )}
-                    {visibleMetrics.carbs && (
+                    {visibleMetrics.carbs && data[hoveredIndex].loggedDays > 0 && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🌾 탄수화물</span>
                             <span style={{ color: 'var(--accent-tertiary)' }}>
@@ -326,7 +409,7 @@ const BarChart = ({ data, visibleMetrics }) => {
                             </span>
                         </div>
                     )}
-                    {visibleMetrics.protein && (
+                    {visibleMetrics.protein && data[hoveredIndex].loggedDays > 0 && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>💪 단백질</span>
                             <span style={{ color: 'var(--accent-quaternary)' }}>
@@ -334,7 +417,7 @@ const BarChart = ({ data, visibleMetrics }) => {
                             </span>
                         </div>
                     )}
-                    {visibleMetrics.fat && (
+                    {visibleMetrics.fat && data[hoveredIndex].loggedDays > 0 && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>💧 지방</span>
                             <span style={{ color: 'var(--accent-secondary)' }}>
@@ -342,7 +425,7 @@ const BarChart = ({ data, visibleMetrics }) => {
                             </span>
                         </div>
                     )}
-                    {data[hoveredIndex].loggedDays !== undefined && (
+                    {data[hoveredIndex].totalDays > 1 && (
                         <span style={{ color: 'var(--text-tertiary)', fontSize: '0.65rem', alignSelf: 'center', marginTop: '2px' }}>
                             기록일: {data[hoveredIndex].loggedDays}일
                         </span>
@@ -396,7 +479,7 @@ const ActivityRing = ({ percentage, size = 100, strokeWidth = 10 }) => {
 };
 
 const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
-    const [viewType, setViewType] = useState('week'); // 'day' | 'week' | 'month' | 'year'
+    const [viewType, setViewType] = useState('day'); // 'day' | 'week' | 'month' | 'year' — 처음엔 최근 30일 일간
     const [targetCalorie, setTargetCalorie] = useState(() => {
         const saved = localStorage.getItem('mealog_target_calorie');
         return saved ? Number(saved) : 2000;
@@ -505,18 +588,20 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
         const today = new Date();
 
         if (viewType === 'day') {
-            // 최근 14일, 하루 단위
+            // 최근 DAY_RANGE일, 하루 단위
             const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
             const chartData = [];
+            const keys = [];
             let sumCal = 0, sumP = 0, sumC = 0, sumF = 0, logged = 0;
 
-            for (let i = 13; i >= 0; i--) {
+            for (let i = DAY_RANGE - 1; i >= 0; i--) {
                 const d = new Date(today);
                 d.setDate(today.getDate() - i);
                 const yyyy = d.getFullYear();
                 const mm = String(d.getMonth() + 1).padStart(2, '0');
                 const dd = String(d.getDate()).padStart(2, '0');
                 const key = `${yyyy}-${mm}-${dd}`;
+                keys.push(key);
 
                 const day = dailyData[key];
                 const energy = energyByDate[key];
@@ -538,7 +623,21 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                     avgFat: day ? day.fat : 0,
                     burn: energy ? energy.burn : null,
                     active: energy ? energy.active : null,
+                    loggedDays: day ? 1 : 0,
+                    totalDays: 1,
                 });
+            }
+
+            // 비교용: 그 직전 같은 길이
+            let prevCal = 0, prevLogged = 0;
+            for (let i = DAY_RANGE * 2 - 1; i >= DAY_RANGE; i--) {
+                const d = new Date(today);
+                d.setDate(today.getDate() - i);
+                const day = dailyData[dateKey(d)];
+                if (day) {
+                    prevCal += day.calories;
+                    prevLogged += 1;
+                }
             }
 
             return {
@@ -549,8 +648,10 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                     avgCarbs: logged > 0 ? sumC / logged : 0,
                     avgFat: logged > 0 ? sumF / logged : 0,
                     loggedDays: logged,
-                    totalDays: 14,
-                    periodName: '최근 14일'
+                    totalDays: DAY_RANGE,
+                    periodName: `최근 ${DAY_RANGE}일`,
+                    keys,
+                    prev: { avgCal: prevLogged > 0 ? prevCal / prevLogged : 0, loggedDays: prevLogged, totalDays: DAY_RANGE, name: `직전 ${DAY_RANGE}일` },
                 }
             };
 
@@ -578,6 +679,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                 let totalCal = 0, totalP = 0, totalC = 0, totalF = 0, loggedDays = 0;
 
                 let totalBurn = 0, totalActive = 0, energyDays = 0;
+                const keys = [];
 
                 // Scan days in the week
                 for (let d = new Date(monday); d <= sunday; d.setDate(d.getDate() + 1)) {
@@ -585,6 +687,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                     const mm = String(d.getMonth() + 1).padStart(2, '0');
                     const dd = String(d.getDate()).padStart(2, '0');
                     const key = `${yyyy}-${mm}-${dd}`;
+                    keys.push(key);
 
                     if (dailyData[key]) {
                         totalCal += dailyData[key].calories;
@@ -618,7 +721,8 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                     burn: energyDays > 0 ? totalBurn / energyDays : null,
                     active: energyDays > 0 ? totalActive / energyDays : null,
                     loggedDays,
-                    totalDays: 7
+                    totalDays: 7,
+                    keys
                 });
             }
 
@@ -634,7 +738,9 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                     avgFat: currentWeek.avgFat || 0,
                     loggedDays: currentWeek.loggedDays || 0,
                     totalDays: 7,
-                    periodName: '이번 주'
+                    periodName: '이번 주',
+                    keys: currentWeek.keys || [],
+                    prev: prevBucket(chartData, '지난 주'),
                 }
             };
 
@@ -650,11 +756,13 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                 let totalCal = 0, totalP = 0, totalC = 0, totalF = 0, loggedDays = 0;
 
                 let totalBurn = 0, totalActive = 0, energyDays = 0;
+                const keys = [];
 
                 for (let dayNum = 1; dayNum <= numDays; dayNum++) {
                     const mm = String(month + 1).padStart(2, '0');
                     const dd = String(dayNum).padStart(2, '0');
                     const key = `${year}-${mm}-${dd}`;
+                    keys.push(key);
 
                     if (dailyData[key]) {
                         totalCal += dailyData[key].calories;
@@ -685,7 +793,8 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                     burn: energyDays > 0 ? totalBurn / energyDays : null,
                     active: energyDays > 0 ? totalActive / energyDays : null,
                     loggedDays,
-                    totalDays: numDays
+                    totalDays: numDays,
+                    keys
                 });
             }
 
@@ -700,7 +809,9 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                     avgFat: currentMonth.avgFat || 0,
                     loggedDays: currentMonth.loggedDays || 0,
                     totalDays: currentMonth.totalDays || 30,
-                    periodName: '이번 달'
+                    periodName: '이번 달',
+                    keys: currentMonth.keys || [],
+                    prev: prevBucket(chartData, '지난달'),
                 }
             };
 
@@ -725,9 +836,11 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                 const yearNum = Number(yStr);
                 
                 let totalCal = 0, totalP = 0, totalC = 0, totalF = 0, loggedDays = 0;
+                const keys = [];
 
                 Object.keys(dailyData).forEach(key => {
                     if (key.startsWith(yStr)) {
+                        keys.push(key);
                         totalCal += dailyData[key].calories;
                         totalP += dailyData[key].protein;
                         totalC += dailyData[key].carbs;
@@ -760,7 +873,8 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                     burn: energyDays > 0 ? totalBurn / energyDays : null,
                     active: energyDays > 0 ? totalActive / energyDays : null,
                     loggedDays,
-                    totalDays: 365
+                    totalDays: 365,
+                    keys
                 };
             });
 
@@ -775,7 +889,9 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                     avgFat: currentYear.avgFat || 0,
                     loggedDays: currentYear.loggedDays || 0,
                     totalDays: 365,
-                    periodName: '올해'
+                    periodName: '올해',
+                    keys: currentYear.keys || [],
+                    prev: prevBucket(chartData, '작년'),
                 }
             };
         }
@@ -789,7 +905,8 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
         // 1. Most active day of the week
         const dayOfWeekSum = Array(7).fill(0).map(() => ({ cal: 0, count: 0 }));
         Object.entries(dailyData).forEach(([dateStr, data]) => {
-            const dayIdx = new Date(dateStr).getDay(); // 0(Sun) - 6(Sat)
+            // 'T00:00:00'을 붙여야 UTC가 아닌 로컬 날짜로 해석돼 요일이 밀리지 않는다
+            const dayIdx = new Date(`${dateStr}T00:00:00`).getDay(); // 0(Sun) - 6(Sat)
             dayOfWeekSum[dayIdx].cal += data.calories;
             dayOfWeekSum[dayIdx].count += 1;
         });
@@ -817,8 +934,8 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
             });
         }
 
-        // 2. Meal type analysis
-        const typeCount = { breakfast: 0, lunch: 0, dinner: 0, snack: 0 };
+        // 2. Meal type analysis (식단 표의 MEAL_TYPES와 같은 6종)
+        const typeCount = { breakfast: 0, lunch: 0, dinner: 0, snack: 0, healthy: 0, cheat: 0 };
         meals.forEach(m => {
             if (m.deleted) return;
             const t = m.type || 'snack';
@@ -828,7 +945,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
         });
 
         const sortedTypes = Object.entries(typeCount).sort((a, b) => b[1] - a[1]);
-        const typeKo = { breakfast: '아침', lunch: '점심', dinner: '저녁', snack: '간식' };
+        const typeKo = { breakfast: '아침', lunch: '점심', dinner: '저녁', snack: '간식', healthy: '건강식', cheat: '치팅데이' };
         if (sortedTypes[0] && sortedTypes[0][1] > 0) {
             list.push({
                 type: 'sparkles',
@@ -838,22 +955,22 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
             });
         }
 
-        // 3. Comparison with previous period
-        if (reportData.chartData.length >= 2) {
-            const current = reportData.chartData[reportData.chartData.length - 1].value;
-            const previous = reportData.chartData[reportData.chartData.length - 2].value;
-
-            if (current > 0 && previous > 0) {
-                const diff = current - previous;
-                const pct = Math.abs((diff / previous) * 100);
-                const isIncrease = diff > 0;
-                list.push({
-                    type: 'trending',
-                    icon: TrendingUp,
-                    iconColor: isIncrease ? '#EB5757' : '#27AE60',
-                    text: `${reportData.summary.periodName} 일평균 칼로리 섭취량은 직전 기간 대비 약 [${Math.round(pct)}%] ${isIncrease ? '증가' : '감소'}했습니다.`
-                });
-            }
+        // 3. 연속 기록 스트릭 (직전 기간 대비 증감은 칼로리 카드로 옮김)
+        // 오늘은 아직 안 먹었을 수 있으니 오늘 기록이 없으면 어제부터 센다
+        const cursor = new Date();
+        if (!dailyData[dateKey(cursor)]) cursor.setDate(cursor.getDate() - 1);
+        let streak = 0;
+        while (dailyData[dateKey(cursor)]) {
+            streak += 1;
+            cursor.setDate(cursor.getDate() - 1);
+        }
+        if (streak >= 2) {
+            list.push({
+                type: 'streak',
+                icon: Flame,
+                iconColor: '#F2994A',
+                text: `오늘까지 [${streak}일 연속]으로 식단을 기록하고 있습니다. 흐름 끊기지 않게 이어가 봐요!`
+            });
         }
 
         // Add a general check
@@ -866,7 +983,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
         });
 
         return list;
-    }, [meals, dailyData, reportData]);
+    }, [meals, dailyData]);
 
     const { summary, chartData } = reportData;
     const hasMeals = meals.length > 0;
@@ -889,7 +1006,19 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
     const proteinRatio = targetProtein > 0 ? ((summary.avgProtein || 0) / targetProtein) * 100 : 0;
     const fatRatio = targetFat > 0 ? ((summary.avgFat || 0) / targetFat) * 100 : 0;
 
+    // 직전 기간 대비 일평균 섭취 변화. 두 기간 모두 기록이 2일 이상 + 기간의 25% 이상일 때만 비교
+    // (월요일 아침처럼 하루치만 있을 때 비교하면 숫자가 크게 튄다)
+    const enoughDays = (s) => s && s.loggedDays >= Math.max(2, Math.ceil(s.totalDays * 0.25));
+    const calDelta = enoughDays(summary) && enoughDays(summary.prev)
+        ? { diff: summary.avgCal - summary.prev.avgCal, name: summary.prev.name }
+        : null;
+
+    // 요약 기간 중 목표 칼로리 이하로 먹은 날
+    const hitDays = (summary.keys || []).filter(k => dailyData[k] && dailyData[k].calories <= targetCalorie).length;
+
     const getMacroStatus = (ratio) => {
+        // 기록이 하나도 없으면 0g이라 무조건 '부족'으로 나오므로 따로 표시
+        if (!summary.loggedDays) return { label: '기록 없음', color: 'var(--text-tertiary)', bg: 'rgba(255, 255, 255, 0.05)' };
         if (ratio < 80) return { label: '부족', color: '#F2C94C', bg: 'rgba(242, 201, 76, 0.1)' };
         if (ratio > 120) return { label: '초과', color: '#EB5757', bg: 'rgba(235, 87, 87, 0.1)' };
         return { label: '적정', color: '#27AE60', bg: 'rgba(39, 174, 96, 0.1)' };
@@ -969,7 +1098,16 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                                         </div>
                                         <p style={{ fontSize: '0.85rem', color: 'var(--text-tertiary)', marginTop: '0.5rem' }}>
                                             {summary.totalDays}일 중 {summary.loggedDays}일 기록됨
+                                            {summary.loggedDays > 0 && ` · 목표 이하 ${hitDays}일`}
                                         </p>
+                                        {calDelta && (
+                                            <p style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)', marginTop: '0.25rem' }}>
+                                                {calDelta.name} 대비{' '}
+                                                <span style={{ fontWeight: 600, color: Math.abs(calDelta.diff) < 1 ? 'var(--text-tertiary)' : calDelta.diff > 0 ? '#EB5757' : '#27AE60' }}>
+                                                    {calDelta.diff > 0 ? '▲' : calDelta.diff < 0 ? '▼' : '–'} {Math.abs(Math.round(calDelta.diff)).toLocaleString()} kcal
+                                                </span>
+                                            </p>
+                                        )}
                                     </div>
                                     <ActivityRing percentage={caloriePercentage} size={90} />
                                 </div>
@@ -1278,7 +1416,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                                     <span>칼로리 & 영양소 추세 리포트</span>
                                 </div>
                                 <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    {viewType === 'day' ? '최근 14일간의 일별 섭취량' :
+                                    {viewType === 'day' ? `최근 ${DAY_RANGE}일간의 일별 섭취량` :
                                      viewType === 'week' ? '최근 8주간의 주차별 일평균 섭취량' :
                                      viewType === 'month' ? '최근 6개월간의 월별 일평균 섭취량' :
                                      '연도별 일평균 섭취량'}
@@ -1361,7 +1499,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                                 </button>
                             </div>
                         </div>
-                        <BarChart data={chartData} visibleMetrics={visibleMetrics} />
+                        <BarChart data={chartData} visibleMetrics={visibleMetrics} targetCalorie={targetCalorie} />
                     </div>
 
                     {/* Insights Card */}

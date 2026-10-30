@@ -33,6 +33,9 @@ const meetsGoal = (balance, mode, target) => {
     return Math.abs(balance - target) <= 200;
 };
 
+// 일간 보기에서 보여줄 날 수 (통계 리포트와 같은 값)
+const DAY_RANGE = 30;
+
 const fmtSigned = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(Math.round(v)).toLocaleString()}`;
 
 // ---- 다이버징 바 차트 ----
@@ -62,8 +65,12 @@ const BalanceChart = ({ data, targetBalance, mode }) => {
 
     const chartW = width - padLeft - padRight;
     const colWidth = chartW / data.length;
+    // 막대가 많으면(30일 등) 날짜 라벨이 겹치므로 오늘부터 거꾸로 N칸마다 하나씩만 표시
+    const labelStep = Math.ceil(data.length / 10);
     const targetY = yFor(targetBalance);
     const hovered = hoveredIndex !== null ? data[hoveredIndex] : null;
+    // 툴팁을 위치 비율만큼 왼쪽으로 당겨서 양 끝 막대에서도 카드 밖으로 잘리지 않게 한다
+    const tipPct = hovered ? ((padLeft + hoveredIndex * colWidth + colWidth / 2) / width) * 100 : 0;
 
     return (
         <div style={{ position: 'relative', width: '100%', marginTop: '1.25rem' }}>
@@ -149,7 +156,7 @@ const BalanceChart = ({ data, targetBalance, mode }) => {
                                 onMouseEnter={() => setHoveredIndex(idx)}
                                 onMouseLeave={() => setHoveredIndex(null)}
                             />
-                            <text
+                            {(data.length - 1 - idx) % labelStep === 0 && <text
                                 x={cx}
                                 y={height - 8}
                                 fill={isHovered ? 'var(--text-primary)' : 'var(--text-secondary)'}
@@ -158,7 +165,7 @@ const BalanceChart = ({ data, targetBalance, mode }) => {
                                 textAnchor="middle"
                             >
                                 {item.label}
-                            </text>
+                            </text>}
                         </g>
                     );
                 })}
@@ -168,9 +175,9 @@ const BalanceChart = ({ data, targetBalance, mode }) => {
             {hovered && hovered.validDays > 0 && (
                 <div style={{
                     position: 'absolute',
-                    left: `${((padLeft + hoveredIndex * colWidth + colWidth / 2) / width) * 100}%`,
+                    left: `${tipPct}%`,
                     top: 0,
-                    transform: 'translate(-50%, -100%)',
+                    transform: `translate(-${tipPct}%, -100%)`,
                     backgroundColor: 'var(--bg-tertiary)',
                     border: '1px solid var(--border-color)',
                     padding: '0.5rem 0.75rem',
@@ -336,11 +343,11 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
         const chartData = [];
 
         if (viewType === 'day') {
-            // 최근 14일, 하루 단위
+            // 최근 DAY_RANGE일, 하루 단위
             const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
             const allDates = [];
 
-            for (let i = 13; i >= 0; i--) {
+            for (let i = DAY_RANGE - 1; i >= 0; i--) {
                 const d = new Date(today);
                 d.setDate(today.getDate() - i);
                 const key = dateKey(d);
@@ -354,9 +361,9 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
                 });
             }
 
-            // 일간 요약은 14일 전체 평균
-            const summary = { ...aggregateRange(allDates), totalDays: 14 };
-            return { chartData, summary, periodName: '최근 14일' };
+            // 일간 요약은 DAY_RANGE일 전체 평균
+            const summary = { ...aggregateRange(allDates), totalDays: DAY_RANGE };
+            return { chartData, summary, periodName: `최근 ${DAY_RANGE}일` };
         }
 
         if (viewType === 'week') {
@@ -471,7 +478,7 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
         const dayNames = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
         const byDow = Array(7).fill(0).map(() => ({ sum: 0, count: 0 }));
         entries.forEach(([date, b]) => {
-            const idx = new Date(date).getDay();
+            const idx = new Date(`${date}T00:00:00`).getDay(); // 로컬 날짜로 해석해야 요일이 안 밀린다
             byDow[idx].sum += b.balance;
             byDow[idx].count += 1;
         });
