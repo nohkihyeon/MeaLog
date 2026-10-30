@@ -22,6 +22,8 @@ create table meals (
   carbs numeric,
   fat numeric,
   intake text not null default '',
+  -- 식단 표 안 행 순서(클라이언트 timestamp). 끌어서 옮기거나 중간에 끼우면 소수가 될 수 있다.
+  sort_ts double precision,
   -- 클라이언트(기기) 수정 시각. Last-Write-Wins 충돌 판정 기준.
   updated_at_ms bigint not null,
   -- 서버 수신 시각. pull 커서 기준 — 기기 시계가 어긋나도 변경분을 놓치지 않게 한다.
@@ -75,3 +77,7 @@ on public.daily_energy
 for all
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
+
+-- [기존 프로젝트 업데이트] 위 테이블을 이미 만들었다면 SQL Editor에서 이것만 실행
+-- alter table meals add column if not exists sort_ts double precision;
+-- notify pgrst, 'reload schema';

@@ -88,6 +88,8 @@ const toRow = (m) => ({
     carbs: num(m.carbs),
     fat: num(m.fat),
     intake: m.intake == null ? '' : String(m.intake),
+    // 식단 표 안 행 순서(끌어서 옮기기·중간 삽입). 기기마다 순서가 같도록 같이 올린다
+    sort_ts: m.timestamp ?? null,
     updated_at_ms: m.updatedAt ?? m.timestamp ?? 0,
     deleted: !!m.deleted,
 });
@@ -102,7 +104,8 @@ const toMeal = (row, local) => ({
     carbs: row.carbs ?? '',
     fat: row.fat ?? '',
     intake: row.intake ?? '',
-    timestamp: local?.timestamp ?? row.updated_at_ms,
+    // sort_ts가 없는 예전 행은 이 기기에 있던 순서를 유지
+    timestamp: row.sort_ts ?? local?.timestamp ?? row.updated_at_ms,
     updatedAt: row.updated_at_ms,
     deleted: row.deleted ? 1 : 0,
 });
@@ -113,7 +116,15 @@ async function pushChanges() {
     const dirty = await db.meals.where('updatedAt').above(lastPush).toArray();
     if (!dirty.length) return;
 
-    const { error } = await supabase.from('meals').upsert(dirty.map(toRow));
+    let { error } = await supabase.from('meals').upsert(dirty.map(toRow));
+    // sort_ts 칸을 아직 안 만든 프로젝트에서도 나머지 동기화는 계속 되도록 빼고 다시 올린다
+    if (error && /sort_ts/.test(error.message || '')) {
+        ({ error } = await supabase.from('meals').upsert(dirty.map(m => {
+            const row = toRow(m);
+            delete row.sort_ts;
+            return row;
+        })));
+    }
     if (error) throw error;
     localStorage.setItem(LAST_PUSH_KEY, String(Math.max(...dirty.map(m => m.updatedAt || 0))));
 }

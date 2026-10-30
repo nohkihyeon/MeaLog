@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { flushSync } from 'react-dom';
-import { Trash2, Plus, Sparkles, Loader2, AlertCircle } from 'lucide-react';
+import { Trash2, Plus, Sparkles, Loader2, AlertCircle, GripVertical } from 'lucide-react';
 import { calcMacroKcal, round1 } from '../utils/nutrition';
 import { analyzeFoodName, hasGeminiKey } from '../utils/gemini';
 import AiFoodModal from './AiFoodModal';
@@ -45,11 +45,14 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
         meals.forEach(meal => {
             seenIds.add(meal.id);
             if (overrides[meal.id]) {
-                result.push(overrides[meal.id]);
+                // 막 추가된 행의 override엔 timestamp가 없을 수 있어 DB 값 위에 덮는다
+                result.push({ ...meal, ...overrides[meal.id] });
             } else {
                 result.push(meal);
             }
         });
+        // 끌어서 옮긴 행은 timestamp override만 먼저 바뀌므로 DB 반영 전에도 새 순서로 보이게 다시 정렬
+        result.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
         // 2. Add new meals from overrides (and the inserted draft row) that aren't in props.meals yet.
         // 중간에 삽입한 행은 timestamp 기준으로 제자리에, 나머지는 맨 뒤에 둔다.
@@ -103,7 +106,8 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
                         String(saved.carbs ?? '') === String(unsaved.carbs ?? '') &&
                         String(saved.fat ?? '') === String(unsaved.fat ?? '') &&
                         String(saved.intake) === String(unsaved.intake || '') &&
-                        saved.type === unsaved.type;
+                        saved.type === unsaved.type &&
+                        (unsaved.timestamp == null || saved.timestamp === unsaved.timestamp);
 
                     if (isSynced) {
                         delete next[id];
@@ -238,6 +242,102 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
 
     const discardDraft = (id) => setInsertDraft(d => (d?.id === id ? null : d));
 
+    // ---- 행 끌어서 순서 바꾸기 ----
+    // 왼쪽 손잡이를 누른 채 위아래로 끌면 행이 따라오고 나머지 행이 비켜 준다.
+    // 끄는 동안은 리렌더 없이 transform만 직접 바꾸고, 놓을 때 위아래 행 사이 timestamp로 저장한다.
+    const tableRef = useRef(null);
+    const dragRef = useRef(null);
+    const [draggingId, setDraggingId] = useState(null);
+
+    const handleDragStart = (e, id) => {
+        if (e.button !== 0 || dragRef.current) return;
+        e.preventDefault(); // 텍스트 선택·포커스 이동 막기
+        // 끼워 넣다 만 빈 행이 있으면 치우고 시작 (행 위치 계산이 꼬이지 않게)
+        if (insertDraft) flushSync(() => setInsertDraft(null));
+        const rows = itemsToRender.filter(m => !m.isGhost && !m.isDraft);
+        const els = rows.map(m => rowRefs.current[m.id]);
+        const from = rows.findIndex(m => m.id === id);
+        if (from === -1 || els.some(el => !el)) return;
+
+        const tableTop = tableRef.current.getBoundingClientRect().top;
+        const boxes = els.map(el => {
+            const r = el.getBoundingClientRect();
+            return { top: r.top - tableTop, height: r.height };
+        });
+        e.currentTarget.setPointerCapture(e.pointerId);
+        dragRef.current = { rows, els, boxes, from, to: from, startY: e.clientY, tableTop };
+        setDraggingId(id);
+
+        els.forEach((el, i) => { el.style.transition = i === from ? 'none' : 'transform .15s ease'; });
+        Object.assign(els[from].style, {
+            zIndex: 5,
+            background: 'var(--bg-tertiary)',
+            borderRadius: '6px',
+            boxShadow: '0 6px 20px rgba(0,0,0,0.45)',
+        });
+    };
+
+    const handleDragMove = (e) => {
+        const d = dragRef.current;
+        if (!d) return;
+        const self = d.boxes[d.from];
+        const last = d.boxes[d.boxes.length - 1];
+        // 끄는 중에 페이지가 스크롤돼도 맞도록 표 위치 변화를 더하고, 첫 행 위·마지막 행 아래로는 못 나가게 막는다
+        const scrolled = d.tableTop - tableRef.current.getBoundingClientRect().top;
+        const dy = Math.min(
+            Math.max(e.clientY - d.startY + scrolled, d.boxes[0].top - self.top),
+            last.top + last.height - self.top - self.height
+        );
+        const center = self.top + self.height / 2 + dy;
+        const to = d.boxes.filter((b, i) => i !== d.from && b.top + b.height / 2 < center).length;
+        d.to = to;
+        d.els.forEach((el, i) => {
+            let shift = 0;
+            if (i === d.from) shift = dy;
+            else if (d.from < to && i > d.from && i <= to) shift = -self.height;
+            else if (to < d.from && i >= to && i < d.from) shift = self.height;
+            el.style.transform = shift ? `translateY(${shift}px)` : '';
+        });
+    };
+
+    const handleDragEnd = () => {
+        const d = dragRef.current;
+        if (!d) return;
+        dragRef.current = null;
+
+        if (d.to !== d.from) {
+            const moved = d.rows[d.from];
+            const order = d.rows.filter((_, i) => i !== d.from);
+            const prevTs = d.to > 0 ? (order[d.to - 1].timestamp ?? 0) : null;
+            const nextTs = d.to < order.length ? (order[d.to].timestamp ?? 0) : null;
+            const ts = prevTs == null ? nextTs - 1000
+                : nextTs == null ? Math.max(prevTs + 1, Date.now())
+                : (prevTs + nextTs) / 2;
+            // 새 순서를 DOM에 먼저 반영한 뒤 transform을 지워야 놓는 순간 원래 자리로 튀지 않는다
+            flushSync(() => {
+                if ((prevTs == null || ts > prevTs) && (nextTs == null || ts < nextTs)) {
+                    handleRowUpdate(moved.id, { timestamp: ts });
+                    // 다른 기기도 이 날 순서를 그대로 따르도록 나머지 행도 지금 timestamp로 다시 저장(동기화 대상)
+                    order.forEach(m => handleRowUpdate(m.id, { timestamp: m.timestamp }));
+                } else {
+                    // 위아래 timestamp가 같아서 사이 값이 없으면 그날 행 순서를 처음부터 다시 매긴다
+                    order.splice(d.to, 0, moved);
+                    const base = Math.min(...order.map(m => m.timestamp ?? 0));
+                    order.forEach((m, i) => {
+                        if (m.timestamp !== base + i * 1000) handleRowUpdate(m.id, { timestamp: base + i * 1000 });
+                    });
+                }
+                setDraggingId(null);
+            });
+        } else {
+            setDraggingId(null);
+        }
+
+        d.els.forEach(el => {
+            Object.assign(el.style, { transform: '', transition: '', zIndex: '', background: '', borderRadius: '', boxShadow: '' });
+        });
+    };
+
     // 5. Gather unique recommendations from all history
     const recommendations = useMemo(() => {
         const sourceMeals = allMeals.length > 0 ? allMeals : meals;
@@ -301,8 +401,19 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
                 }
                 .row-action-btn.add:hover{color:#27AE60;border-color:rgba(39,174,96,0.5);background:rgba(39,174,96,0.12);}
                 .row-action-btn.delete:hover{color:#EB5757;border-color:rgba(235,87,87,0.5);background:rgba(235,87,87,0.12);}
+                .drag-handle{
+                    display:flex;align-items:center;justify-content:center;
+                    width:1.2rem;height:24px;flex-shrink:0;border-radius:4px;
+                    color:var(--text-tertiary);cursor:grab;touch-action:none;
+                    opacity:0;visibility:hidden;transition:opacity .15s ease,visibility .15s;
+                }
+                .meal-row:hover .drag-handle,.meal-row:focus-within .drag-handle,.meal-row.dragging .drag-handle{opacity:1;visibility:visible;}
+                .drag-handle:hover{color:var(--text-primary);background:rgba(255,255,255,0.06);}
+                .meal-row.dragging .drag-handle{cursor:grabbing;color:var(--text-primary);}
+                /* 터치 기기는 hover가 없으니 손잡이를 항상 흐리게 보여준다 */
+                @media (hover: none){.drag-handle{opacity:.45;visibility:visible;}}
             `}</style>
-            <div style={{ minWidth: '804px', fontSize: '0.95rem' }} onKeyDown={handleGridKeyDown}>
+            <div ref={tableRef} style={{ minWidth: '804px', fontSize: '0.95rem' }} onKeyDown={handleGridKeyDown}>
                 {/* Header */}
                 <div style={{
                     display: 'grid',
@@ -332,6 +443,10 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
                         onDelete={onDelete}
                         onInsertBelow={handleInsertBelow}
                         onDiscardDraft={discardDraft}
+                        onDragStart={handleDragStart}
+                        onDragMove={handleDragMove}
+                        onDragEnd={handleDragEnd}
+                        isDragging={draggingId === meal.id}
                         isGhost={meal.isGhost}
                         isDraft={meal.isDraft}
                         recommendations={recommendations}
@@ -344,7 +459,7 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
 };
 
 // Sub-component for single row
-const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, onInsertBelow, onDiscardDraft, isGhost, isDraft, recommendations }, ref) => {
+const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, onInsertBelow, onDiscardDraft, onDragStart, onDragMove, onDragEnd, isDragging, isGhost, isDraft, recommendations }, ref) => {
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(-1);
 
@@ -490,7 +605,7 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, onInsertBelow, onD
         <div
             ref={ref}
             data-meal-row
-            className="meal-row"
+            className={`meal-row${isDragging ? ' dragging' : ''}`}
             // 삽입만 하고 아무것도 적지 않은 채 행을 벗어나면 빈 행은 치운다 (조합 중인 글자가 있으면 유지)
             onBlur={isDraft ? (e) => {
                 if (e.currentTarget.contains(e.relatedTarget)) return;
@@ -509,7 +624,21 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, onInsertBelow, onD
             }}
         >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingRight: '1rem', position: 'relative' }}>
-                <div style={{ width: '1.2rem' }}></div>
+                {/* 순서 바꾸기 손잡이: 누른 채 위아래로 끌기. 새 행·끼워 넣은 빈 행엔 없음 */}
+                {!isGhost && !isDraft ? (
+                    <div
+                        className="drag-handle"
+                        onPointerDown={e => onDragStart(e, meal.id)}
+                        onPointerMove={onDragMove}
+                        onPointerUp={onDragEnd}
+                        onPointerCancel={onDragEnd}
+                        title="끌어서 순서 바꾸기"
+                    >
+                        <GripVertical size={14} />
+                    </div>
+                ) : (
+                    <div style={{ width: '1.2rem' }}></div>
+                )}
                 <div style={{ flex: 1, position: 'relative' }}>
                     <input
                         name="meal-name"
