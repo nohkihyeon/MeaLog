@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { Trash2, Plus, Sparkles, Loader2, AlertCircle, GripVertical } from 'lucide-react';
-import { calcMacroKcal, round1 } from '../utils/nutrition';
+import { calcMacroKcal, getEffectiveCalories, round1 } from '../utils/nutrition';
 import { analyzeFoodName, hasGeminiKey } from '../utils/gemini';
 import AiFoodModal from './AiFoodModal';
 
@@ -378,6 +378,22 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
         if (typeof target.select === 'function') target.select();
     };
 
+    // 각 로우까지의 누적합 (해당 로우 포함). 호버 툴팁용
+    const cumulativeById = useMemo(() => {
+        const map = {};
+        let kcal = 0, protein = 0, carbs = 0, fat = 0;
+        itemsToRender.forEach(m => {
+            if (m.isGhost) return;
+            if (m.isDraft && !m.name) return;
+            kcal += getEffectiveCalories(m);
+            protein += Number(m.protein) || 0;
+            carbs += Number(m.carbs) || 0;
+            fat += Number(m.fat) || 0;
+            map[m.id] = { kcal: Math.round(kcal), protein: round1(protein), carbs: round1(carbs), fat: round1(fat) };
+        });
+        return map;
+    }, [itemsToRender]);
+
     return (
         <div className="meal-table-scroll">
             <style>{`
@@ -392,6 +408,8 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
                 .ai-spin{animation:ai-spin 1s linear infinite;}
                 @keyframes ai-spin{to{transform:rotate(360deg)}}
                 .row-actions{display:flex;gap:4px;opacity:0;visibility:hidden;transition:opacity .15s ease,visibility .15s;}
+                .row-cumulative{opacity:0;visibility:hidden;transition:opacity .12s ease;}
+                .meal-row:hover .row-cumulative{opacity:1;visibility:visible;}
                 .meal-row:hover .row-actions,.meal-row:focus-within .row-actions{opacity:1;visibility:visible;}
                 .row-action-btn{
                     display:flex;align-items:center;justify-content:center;
@@ -450,6 +468,7 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
                         isGhost={meal.isGhost}
                         isDraft={meal.isDraft}
                         recommendations={recommendations}
+                        cumulative={cumulativeById[meal.id]}
                         ref={el => rowRefs.current[meal.id] = el}
                     />
                 ))}
@@ -459,7 +478,7 @@ const InlineMealTable = ({ meals, allMeals = [], onUpdate, onDelete, onAdd }) =>
 };
 
 // Sub-component for single row
-const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, onInsertBelow, onDiscardDraft, onDragStart, onDragMove, onDragEnd, isDragging, isGhost, isDraft, recommendations }, ref) => {
+const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, onInsertBelow, onDiscardDraft, onDragStart, onDragMove, onDragEnd, isDragging, isGhost, isDraft, recommendations, cumulative }, ref) => {
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(-1);
 
@@ -623,6 +642,31 @@ const MealRow = React.forwardRef(({ meal, onUpdate, onDelete, onInsertBelow, onD
                 position: 'relative'
             }}
         >
+            {/* 이 로우까지의 누적 합계 */}
+            {cumulative && !showSuggestions && !isDragging && (
+                <div className="row-cumulative" style={{
+                    position: 'absolute',
+                    right: '40px',
+                    bottom: '100%',
+                    zIndex: 50,
+                    display: 'flex',
+                    gap: '10px',
+                    padding: '4px 10px',
+                    borderRadius: '8px',
+                    fontSize: '0.78rem',
+                    whiteSpace: 'nowrap',
+                    background: 'var(--bg-secondary, rgba(255,255,255,0.95))',
+                    border: '1px solid var(--border-color)',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    pointerEvents: 'none'
+                }}>
+                    <span style={{ color: 'var(--text-tertiary)' }}>여기까지 합계</span>
+                    <span>🔥 {cumulative.kcal}kcal</span>
+                    <span>💪 단 {cumulative.protein}g</span>
+                    <span>🍚 탄 {cumulative.carbs}g</span>
+                    <span>🥑 지 {cumulative.fat}g</span>
+                </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingRight: '1rem', position: 'relative' }}>
                 {/* 순서 바꾸기 손잡이: 누른 채 위아래로 끌기. 새 행·끼워 넣은 빈 행엔 없음 */}
                 {!isGhost && !isDraft ? (
