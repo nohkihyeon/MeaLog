@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { Flame, Target, TrendingUp, Sparkles, Trophy, ChevronRight, Apple, Settings } from 'lucide-react';
-import { getEffectiveCalories } from '../utils/nutrition';
+import { getEffectiveCalories, formatWeight } from '../utils/nutrition';
 import CalorieBalanceCard from './CalorieBalanceCard';
+import WeightOverlay from './WeightOverlay';
+import { WEIGHT_LINE_COLOR } from '../utils/weightChart';
 
 // 일간 보기에서 보여줄 날 수 (칼로리 밸런스 카드와 같은 값)
 const DAY_RANGE = 30;
@@ -43,9 +45,12 @@ const BarChart = ({ data, visibleMetrics, targetCalorie }) => {
 
     const height = 160;
     const paddingLeft = 35;
-    const paddingRight = 35; // Add space for right Y-axis
+    const paddingRight = 40; // Add space for right Y-axis (macros or weight)
     const paddingTop = 20;
     const paddingBottom = 25;
+
+    const hasMacroAxis = visibleMetrics.carbs || visibleMetrics.protein || visibleMetrics.fat;
+    const hasWeightLine = visibleMetrics.weight && data.some(d => d.avgWeight != null);
 
     const chartWidth = 500 - paddingLeft - paddingRight;
     const barCount = data.length;
@@ -277,6 +282,18 @@ const BarChart = ({ data, visibleMetrics, targetCalorie }) => {
                         strokeLinejoin="round"
                     />
                 )}
+                {hasWeightLine && (
+                    <WeightOverlay
+                        buckets={data}
+                        xFor={getColCenterX}
+                        padTop={paddingTop}
+                        plotH={height - paddingTop - paddingBottom}
+                        rightAxisX={500 - paddingRight + 6}
+                        showRightAxis={!hasMacroAxis}
+                        showDots={barCount <= 45}
+                        hoveredIndex={hoveredIndex}
+                    />
+                )}
 
                 {/* Markers & Interaction Triggers */}
                 {data.map((item, idx) => {
@@ -425,6 +442,14 @@ const BarChart = ({ data, visibleMetrics, targetCalorie }) => {
                             </span>
                         </div>
                     )}
+                    {hasWeightLine && data[hoveredIndex].avgWeight != null && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>⚖️ 공복 체중</span>
+                            <span style={{ color: WEIGHT_LINE_COLOR }}>
+                                {formatWeight(data[hoveredIndex].avgWeight)} kg
+                            </span>
+                        </div>
+                    )}
                     {data[hoveredIndex].totalDays > 1 && (
                         <span style={{ color: 'var(--text-tertiary)', fontSize: '0.65rem', alignSelf: 'center', marginTop: '2px' }}>
                             기록일: {data[hoveredIndex].loggedDays}일
@@ -516,7 +541,8 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
         protein: false,
         fat: false,
         burn: false,
-        active: false
+        active: false,
+        weight: true
     });
 
     const handleTargetCalorieChange = (e) => {
@@ -571,15 +597,17 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
         return stats;
     }, [meals]);
 
-    // 1.5. 일별 소모/활동 칼로리 맵 (기초값 없으면 수동 BMR 폴백)
+    // 1.5. 일별 소모/활동 칼로리 및 공복 체중 맵 (기초값 없으면 수동 BMR 폴백)
     const energyByDate = useMemo(() => {
         const map = {};
         dailyEnergy.forEach(e => {
             const basal = e.basal > 0 ? e.basal : manualBmr;
-            map[e.date] = { burn: basal + e.active, active: e.active };
+            const weight = e.weight != null && Number.isFinite(e.weight) && e.weight > 0 ? e.weight : null;
+            map[e.date] = { burn: basal + e.active, active: e.active, weight };
         });
         return map;
     }, [dailyEnergy, manualBmr]);
+    const hasWeightData = dailyEnergy.some(e => e.weight != null && Number.isFinite(e.weight) && e.weight > 0);
 
     // 2. Generate stats based on viewType (day, week, month, year)
     const reportData = useMemo(() => {
@@ -623,6 +651,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                     avgFat: day ? day.fat : 0,
                     burn: energy ? energy.burn : null,
                     active: energy ? energy.active : null,
+                    avgWeight: energy ? energy.weight : null,
                     loggedDays: day ? 1 : 0,
                     totalDays: 1,
                 });
@@ -679,6 +708,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                 let totalCal = 0, totalP = 0, totalC = 0, totalF = 0, loggedDays = 0;
 
                 let totalBurn = 0, totalActive = 0, energyDays = 0;
+                let totalWeight = 0, weightDays = 0;
                 const keys = [];
 
                 // Scan days in the week
@@ -700,6 +730,10 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                         totalBurn += energyByDate[key].burn;
                         totalActive += energyByDate[key].active;
                         energyDays += 1;
+                        if (energyByDate[key].weight != null) {
+                            totalWeight += energyByDate[key].weight;
+                            weightDays += 1;
+                        }
                     }
                 }
 
@@ -720,6 +754,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                     avgFat: avgF,
                     burn: energyDays > 0 ? totalBurn / energyDays : null,
                     active: energyDays > 0 ? totalActive / energyDays : null,
+                    avgWeight: weightDays > 0 ? totalWeight / weightDays : null,
                     loggedDays,
                     totalDays: 7,
                     keys
@@ -756,6 +791,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                 let totalCal = 0, totalP = 0, totalC = 0, totalF = 0, loggedDays = 0;
 
                 let totalBurn = 0, totalActive = 0, energyDays = 0;
+                let totalWeight = 0, weightDays = 0;
                 const keys = [];
 
                 for (let dayNum = 1; dayNum <= numDays; dayNum++) {
@@ -775,6 +811,10 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                         totalBurn += energyByDate[key].burn;
                         totalActive += energyByDate[key].active;
                         energyDays += 1;
+                        if (energyByDate[key].weight != null) {
+                            totalWeight += energyByDate[key].weight;
+                            weightDays += 1;
+                        }
                     }
                 }
 
@@ -792,6 +832,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                     avgFat: avgF,
                     burn: energyDays > 0 ? totalBurn / energyDays : null,
                     active: energyDays > 0 ? totalActive / energyDays : null,
+                    avgWeight: weightDays > 0 ? totalWeight / weightDays : null,
                     loggedDays,
                     totalDays: numDays,
                     keys
@@ -850,11 +891,16 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                 });
 
                 let totalBurn = 0, totalActive = 0, energyDays = 0;
+                let totalWeight = 0, weightDays = 0;
                 Object.keys(energyByDate).forEach(key => {
                     if (key.startsWith(yStr)) {
                         totalBurn += energyByDate[key].burn;
                         totalActive += energyByDate[key].active;
                         energyDays += 1;
+                        if (energyByDate[key].weight != null) {
+                            totalWeight += energyByDate[key].weight;
+                            weightDays += 1;
+                        }
                     }
                 });
 
@@ -872,6 +918,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                     avgFat: avgF,
                     burn: energyDays > 0 ? totalBurn / energyDays : null,
                     active: energyDays > 0 ? totalActive / energyDays : null,
+                    avgWeight: weightDays > 0 ? totalWeight / weightDays : null,
                     loggedDays,
                     totalDays: 365,
                     keys
@@ -1497,6 +1544,20 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                                 >
                                     활동
                                 </button>
+                                {hasWeightData && (
+                                    <button
+                                        onClick={() => setVisibleMetrics(prev => ({ ...prev, weight: !prev.weight }))}
+                                        style={{
+                                            padding: '0.3rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600,
+                                            border: '1px solid var(--border-color)', cursor: 'pointer',
+                                            backgroundColor: visibleMetrics.weight ? 'rgba(45, 212, 191, 0.15)' : 'transparent',
+                                            color: visibleMetrics.weight ? WEIGHT_LINE_COLOR : 'var(--text-secondary)',
+                                            transition: 'all 0.15s ease'
+                                        }}
+                                    >
+                                        체중
+                                    </button>
+                                )}
                             </div>
                         </div>
                         <BarChart data={chartData} visibleMetrics={visibleMetrics} targetCalorie={targetCalorie} />

@@ -158,17 +158,30 @@ async function pullChanges() {
     }
 }
 
-// daily_energy(일별 소모 칼로리)는 앱에서 수정하지 않는 읽기 전용 데이터라
+// daily_energy(일별 소모 칼로리 + 아침 공복 체중)는 앱에서 수정하지 않는 읽기 전용 데이터라
 // 커서 없이 전체를 받아 로컬 테이블을 서버 상태로 통째로 미러링한다.
 // (1년치 ≈ 365행, 페이지당 1000행이면 충분. 삭제 전파도 자동 해결)
 async function pullDailyEnergy() {
     const rows = [];
+    let includeWeight = true;
     for (let from = 0; ; from += PULL_PAGE_SIZE) {
-        const { data, error } = await supabase
+        const columns = includeWeight
+            ? 'date, active_calories, basal_calories, weight_kg, updated_at'
+            : 'date, active_calories, basal_calories, updated_at';
+        let { data, error } = await supabase
             .from('daily_energy')
-            .select('date, active_calories, basal_calories, updated_at')
+            .select(columns)
             .order('date', { ascending: true })
             .range(from, from + PULL_PAGE_SIZE - 1);
+        if (error && includeWeight && /weight_kg/.test(error.message || '')) {
+            // weight_kg 컬럼을 아직 추가하지 않은 Supabase 프로젝트에서도 기존 동기화가 동작하도록 폴백
+            includeWeight = false;
+            ({ data, error } = await supabase
+                .from('daily_energy')
+                .select('date, active_calories, basal_calories, updated_at')
+                .order('date', { ascending: true })
+                .range(from, from + PULL_PAGE_SIZE - 1));
+        }
         if (error) {
             // 테이블이 아직 없는 프로젝트에서도 meals 동기화는 계속 동작해야 한다
             if (error.code === '42P01') return;
@@ -184,6 +197,9 @@ async function pullDailyEnergy() {
             date: r.date,
             active: Number(r.active_calories) || 0,
             basal: Number(r.basal_calories) || 0,
+            weight: r.weight_kg != null && r.weight_kg !== '' && Number.isFinite(Number(r.weight_kg))
+                ? Number(r.weight_kg)
+                : null,
             updatedAt: r.updated_at,
         })));
     });

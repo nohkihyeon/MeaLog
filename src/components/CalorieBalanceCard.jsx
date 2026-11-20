@@ -1,5 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { Scale, Settings, TrendingDown, Flame, CalendarDays } from 'lucide-react';
+import { formatWeight } from '../utils/nutrition';
+import WeightOverlay from './WeightOverlay';
+import { WEIGHT_LINE_COLOR } from '../utils/weightChart';
 
 // ---- 목표 모드 정의 ----
 const GOAL_MODES = {
@@ -39,15 +42,16 @@ const DAY_RANGE = 30;
 const fmtSigned = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(Math.round(v)).toLocaleString()}`;
 
 // ---- 다이버징 바 차트 ----
-const BalanceChart = ({ data, targetBalance, mode }) => {
+const BalanceChart = ({ data, targetBalance, mode, showWeight = false }) => {
     const [hoveredIndex, setHoveredIndex] = useState(null);
 
     if (!data || data.length === 0) return null;
 
+    const hasWeightLine = showWeight && data.some(d => d.avgWeight != null);
     const width = 500;
     const height = 180;
     const padLeft = 42;
-    const padRight = 12;
+    const padRight = hasWeightLine ? 42 : 12;
     const padTop = 16;
     const padBottom = 26;
     const plotH = height - padTop - padBottom;
@@ -65,12 +69,13 @@ const BalanceChart = ({ data, targetBalance, mode }) => {
 
     const chartW = width - padLeft - padRight;
     const colWidth = chartW / data.length;
+    const xFor = (idx) => padLeft + idx * colWidth + colWidth / 2;
     // 막대가 많으면(30일 등) 날짜 라벨이 겹치므로 오늘부터 거꾸로 N칸마다 하나씩만 표시
     const labelStep = Math.ceil(data.length / 10);
     const targetY = yFor(targetBalance);
     const hovered = hoveredIndex !== null ? data[hoveredIndex] : null;
     // 툴팁을 위치 비율만큼 왼쪽으로 당겨서 양 끝 막대에서도 카드 밖으로 잘리지 않게 한다
-    const tipPct = hovered ? ((padLeft + hoveredIndex * colWidth + colWidth / 2) / width) * 100 : 0;
+    const tipPct = hovered ? (xFor(hoveredIndex) / width) * 100 : 0;
 
     return (
         <div style={{ position: 'relative', width: '100%', marginTop: '1.25rem' }}>
@@ -142,6 +147,8 @@ const BalanceChart = ({ data, targetBalance, mode }) => {
                         );
                     }
 
+                    const hasHoverable = hasData || (hasWeightLine && item.avgWeight != null);
+
                     return (
                         <g key={idx}>
                             {bar}
@@ -152,8 +159,8 @@ const BalanceChart = ({ data, targetBalance, mode }) => {
                                 width={colWidth}
                                 height={plotH}
                                 fill="transparent"
-                                style={{ cursor: hasData ? 'pointer' : 'default' }}
-                                onMouseEnter={() => setHoveredIndex(idx)}
+                                style={{ cursor: hasHoverable ? 'pointer' : 'default' }}
+                                onMouseEnter={() => hasHoverable && setHoveredIndex(idx)}
                                 onMouseLeave={() => setHoveredIndex(null)}
                             />
                             {(data.length - 1 - idx) % labelStep === 0 && <text
@@ -169,10 +176,32 @@ const BalanceChart = ({ data, targetBalance, mode }) => {
                         </g>
                     );
                 })}
+
+                {/* 공복 체중 꺾은선 오버레이 */}
+                {hasWeightLine && (
+                    <WeightOverlay
+                        buckets={data}
+                        xFor={xFor}
+                        padTop={padTop}
+                        plotH={plotH}
+                        rightAxisX={width - padRight + 6}
+                        showRightAxis={true}
+                        showDots={data.length <= 45}
+                        hoveredIndex={hoveredIndex}
+                    />
+                )}
             </svg>
 
+            {hasWeightLine && (
+                <div style={{ display: 'flex', gap: '14px', justifyContent: 'center', marginTop: '0.4rem', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span style={{ width: '12px', height: '2px', backgroundColor: WEIGHT_LINE_COLOR, borderRadius: '1px' }} />공복 체중 (kg)
+                    </span>
+                </div>
+            )}
+
             {/* 툴팁 */}
-            {hovered && hovered.validDays > 0 && (
+            {hovered && (hovered.validDays > 0 || (hasWeightLine && hovered.avgWeight != null)) && (
                 <div style={{
                     position: 'absolute',
                     left: `${tipPct}%`,
@@ -196,23 +225,35 @@ const BalanceChart = ({ data, targetBalance, mode }) => {
                     <span style={{ color: 'var(--text-secondary)', fontSize: '0.65rem', alignSelf: 'center', marginBottom: '2px' }}>
                         {hovered.periodLabel || hovered.label}
                     </span>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
-                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🍽️ 섭취</span>
-                        <span>{Math.round(hovered.avgIntake).toLocaleString()} kcal</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
-                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🔥 소모</span>
-                        <span>{Math.round(hovered.avgBurn).toLocaleString()} kcal</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
-                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>⚖️ 밸런스</span>
-                        <span style={{ color: judgeColor(judgeBalance(hovered.avgBalance, mode)) }}>
-                            {fmtSigned(hovered.avgBalance)} kcal
+                    {hovered.validDays > 0 && (
+                        <>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🍽️ 섭취</span>
+                                <span>{Math.round(hovered.avgIntake).toLocaleString()} kcal</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🔥 소모</span>
+                                <span>{Math.round(hovered.avgBurn).toLocaleString()} kcal</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>⚖️ 밸런스</span>
+                                <span style={{ color: judgeColor(judgeBalance(hovered.avgBalance, mode)) }}>
+                                    {fmtSigned(hovered.avgBalance)} kcal
+                                </span>
+                            </div>
+                        </>
+                    )}
+                    {hasWeightLine && hovered.avgWeight != null && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>⚖️ 공복 체중</span>
+                            <span style={{ color: WEIGHT_LINE_COLOR }}>{formatWeight(hovered.avgWeight)} kg</span>
+                        </div>
+                    )}
+                    {hovered.validDays > 0 && (
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: '0.65rem', alignSelf: 'center', marginTop: '2px' }}>
+                            밸런스 계산일: {hovered.validDays}일
                         </span>
-                    </div>
-                    <span style={{ color: 'var(--text-tertiary)', fontSize: '0.65rem', alignSelf: 'center', marginTop: '2px' }}>
-                        밸런스 계산일: {hovered.validDays}일
-                    </span>
+                    )}
                 </div>
             )}
         </div>
@@ -253,6 +294,7 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
     });
 
     const [isEditing, setIsEditing] = useState(false);
+    const [showWeight, setShowWeight] = useState(true);
     const [editMode, setEditMode] = useState(goalMode);
     const [editTarget, setEditTarget] = useState(targetBalance);
     const [editBmr, setEditBmr] = useState(manualBmr);
@@ -308,27 +350,16 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
     const hasEnergyData = dailyEnergy.length > 0;
     const validDateCount = Object.keys(balanceByDate).length;
 
-    // ---- 기간 집계 헬퍼 ----
-    const aggregateRange = (dates) => {
-        let intake = 0, burn = 0, basal = 0, active = 0, validDays = 0;
-        dates.forEach(key => {
-            const b = balanceByDate[key];
-            if (!b) return;
-            intake += b.intake;
-            burn += b.burn;
-            basal += b.basal;
-            active += b.active;
-            validDays += 1;
+    const weightMap = useMemo(() => {
+        const map = {};
+        dailyEnergy.forEach(e => {
+            if (e.weight != null && Number.isFinite(e.weight) && e.weight > 0) {
+                map[e.date] = e.weight;
+            }
         });
-        return {
-            validDays,
-            avgIntake: validDays ? intake / validDays : 0,
-            avgBurn: validDays ? burn / validDays : 0,
-            avgBasal: validDays ? basal / validDays : 0,
-            avgActive: validDays ? active / validDays : 0,
-            avgBalance: validDays ? (intake - burn) / validDays : 0,
-        };
-    };
+        return map;
+    }, [dailyEnergy]);
+    const hasWeightData = Object.keys(weightMap).length > 0;
 
     const dateKey = (d) => {
         const yyyy = d.getFullYear();
@@ -339,6 +370,34 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
 
     // ---- viewType별 차트 데이터 (기존 리포트와 동일한 기간 구조) ----
     const report = useMemo(() => {
+        const aggregateRange = (dates) => {
+            let intake = 0, burn = 0, basal = 0, active = 0, validDays = 0;
+            let weightSum = 0, weightDays = 0;
+            dates.forEach(key => {
+                const w = weightMap[key];
+                if (w != null) {
+                    weightSum += w;
+                    weightDays += 1;
+                }
+                const b = balanceByDate[key];
+                if (!b) return;
+                intake += b.intake;
+                burn += b.burn;
+                basal += b.basal;
+                active += b.active;
+                validDays += 1;
+            });
+            return {
+                validDays,
+                avgIntake: validDays ? intake / validDays : 0,
+                avgBurn: validDays ? burn / validDays : 0,
+                avgBasal: validDays ? basal / validDays : 0,
+                avgActive: validDays ? active / validDays : 0,
+                avgBalance: validDays ? (intake - burn) / validDays : 0,
+                avgWeight: weightDays ? weightSum / weightDays : null,
+            };
+        };
+
         const today = new Date();
         const chartData = [];
 
@@ -436,7 +495,7 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
         const periodName = viewType === 'week' ? '이번 주' : viewType === 'month' ? '이번 달' : '올해';
 
         return { chartData, summary, periodName };
-    }, [balanceByDate, viewType]);
+    }, [balanceByDate, weightMap, viewType]);
 
     // ---- 인사이트 ----
     const insights = useMemo(() => {
@@ -457,6 +516,29 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
                 icon: TrendingDown,
                 iconColor: isDeficit ? COLOR_GOOD : COLOR_BAD,
                 text: `최근 30일 누적 밸런스는 [${fmtSigned(cumulative)} kcal]입니다. 체지방 약 [${fatKg.toFixed(1)}kg] ${isDeficit ? '감량' : '증량'}에 해당해요. (계산일 ${recent.length}일 기준)`,
+            });
+        }
+
+        // 1.5. 최근 30일 실제 아침 공복 체중 변화 비교
+        const recentWeights = dailyEnergy
+            .filter(e => e.date >= cutoffKey && e.weight != null && Number.isFinite(e.weight) && e.weight > 0)
+            .sort((a, b) => a.date.localeCompare(b.date));
+        if (recentWeights.length >= 2) {
+            const firstW = recentWeights[0].weight;
+            const lastW = recentWeights[recentWeights.length - 1].weight;
+            const diffW = lastW - firstW;
+            const diffText = Math.abs(diffW) < 0.05
+                ? '유지'
+                : `${diffW > 0 ? '+' : '−'}${formatWeight(Math.abs(diffW))}kg`;
+            const wColor = goalMode === 'cut'
+                ? (diffW <= 0 ? COLOR_GOOD : COLOR_BAD)
+                : goalMode === 'bulk'
+                    ? (diffW >= 0 ? COLOR_GOOD : COLOR_BAD)
+                    : (Math.abs(diffW) <= 1.0 ? COLOR_GOOD : COLOR_WARN);
+            list.push({
+                icon: Scale,
+                iconColor: wColor,
+                text: `같은 기간 실제 공복 체중은 [${formatWeight(firstW)}kg → ${formatWeight(lastW)}kg (${diffText})] 변화했어요. (${recentWeights.length}일 기록)`,
             });
         }
 
@@ -498,7 +580,7 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
         }
 
         return list;
-    }, [balanceByDate, goalMode, targetBalance]);
+    }, [balanceByDate, dailyEnergy, goalMode, targetBalance]);
 
     const { summary, chartData, periodName } = report;
     const summaryVerdict = judgeBalance(summary.avgBalance || 0, goalMode);
@@ -526,7 +608,25 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
                     <Scale size={18} color={COLOR_GOOD} />
                     <span>칼로리 밸런스 ({periodName})</span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {hasWeightData && (
+                        <button
+                            onClick={() => setShowWeight(v => !v)}
+                            style={{
+                                padding: '0.25rem 0.6rem',
+                                borderRadius: '20px',
+                                fontSize: '0.7rem',
+                                fontWeight: 600,
+                                border: `1px solid ${showWeight ? 'rgba(45, 212, 191, 0.5)' : 'var(--border-color)'}`,
+                                cursor: 'pointer',
+                                backgroundColor: showWeight ? 'rgba(45, 212, 191, 0.15)' : 'transparent',
+                                color: showWeight ? WEIGHT_LINE_COLOR : 'var(--text-secondary)',
+                                transition: 'all 0.15s ease',
+                            }}
+                        >
+                            ⚖️ 체중
+                        </button>
+                    )}
                     <span style={{
                         fontSize: '0.7rem',
                         fontWeight: 700,
@@ -674,7 +774,12 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
                     </div>
 
                     {/* 다이버징 차트 */}
-                    <BalanceChart data={chartData} targetBalance={targetBalance} mode={goalMode} />
+                    <BalanceChart
+                        data={chartData}
+                        targetBalance={targetBalance}
+                        mode={goalMode}
+                        showWeight={showWeight && hasWeightData}
+                    />
 
                     {/* 밸런스 인사이트 */}
                     {insights.length > 0 && (

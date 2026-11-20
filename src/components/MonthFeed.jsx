@@ -2,7 +2,7 @@ import React, { useMemo, useEffect } from 'react';
 import { CalendarDays } from 'lucide-react';
 import DayBlock from './DayBlock';
 
-const MonthFeed = ({ date, meals, onUpdateMeal, onDeleteMeal, onAddMeal, onGoToToday }) => {
+const MonthFeed = ({ date, meals, weightByDate = {}, onUpdateMeal, onDeleteMeal, onAddMeal, onGoToToday }) => {
     const year = new Date(date).getFullYear();
     const month = new Date(date).getMonth(); // 0-indexed
 
@@ -60,6 +60,7 @@ const MonthFeed = ({ date, meals, onUpdateMeal, onDeleteMeal, onAddMeal, onGoToT
                                 date={dayStr}
                                 meals={dayMeals}
                                 allMeals={meals}
+                                weight={weightByDate[dayStr] ?? null}
                                 onUpdateMeal={onUpdateMeal}
                                 onDeleteMeal={onDeleteMeal}
                                 onAddMeal={onAddMeal}

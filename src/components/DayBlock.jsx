@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Camera } from 'lucide-react';
+import { Camera, Scale } from 'lucide-react';
 import InlineMealTable from './InlineMealTable';
 import PhotoMealModal from './PhotoMealModal';
-import { getEffectiveCalories, round1 } from '../utils/nutrition';
+import { getEffectiveCalories, round1, formatWeight } from '../utils/nutrition';
+import { WEIGHT_LINE_COLOR } from '../utils/weightChart';
 
-const DayBlock = ({ date, meals, allMeals, onUpdateMeal, onDeleteMeal, onAddMeal }) => {
+const DayBlock = ({ date, meals, allMeals, weight = null, onUpdateMeal, onDeleteMeal, onAddMeal }) => {
     const dayNum = new Date(date).getDate();
     const [photoOpen, setPhotoOpen] = useState(false);
 
@@ -24,7 +25,30 @@ const DayBlock = ({ date, meals, allMeals, onUpdateMeal, onDeleteMeal, onAddMeal
     return (
         <div style={{ marginBottom: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '1rem' }}>
-                <h2 style={{ fontSize: '1.75rem', fontWeight: 700 }}>{dayNum}일</h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                    <h2 style={{ fontSize: '1.75rem', fontWeight: 700 }}>{dayNum}일</h2>
+                    {weight != null && (
+                        <span
+                            title="아침 공복 체중"
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.3rem',
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                                color: 'var(--text-secondary)',
+                                backgroundColor: 'var(--bg-secondary)',
+                                border: '1px solid var(--border-color)',
+                                padding: '0.2rem 0.55rem',
+                                borderRadius: '999px',
+                                fontVariantNumeric: 'tabular-nums',
+                            }}
+                        >
+                            <Scale size={12} color={WEIGHT_LINE_COLOR} />
+                            {formatWeight(weight)} kg
+                        </span>
+                    )}
+                </div>
                 <button
                     onClick={() => setPhotoOpen(true)}
                     title="사진으로 식단 추가"

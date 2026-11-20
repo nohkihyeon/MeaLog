@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import Layout from './components/Layout';
 import Sidebar from './components/Sidebar';
 import MonthFeed from './components/MonthFeed';
@@ -32,6 +32,16 @@ function App() {
   // 소모 칼로리 데이터가 없는 사용자에게는 에너지 대시보드를 아예 노출하지 않는다
   const hasEnergyData = dailyEnergy.length > 0;
   const effectiveView = currentView === 'energy' && !hasEnergyData ? 'stats' : currentView;
+
+  const weightByDate = useMemo(() => {
+    const map = {};
+    dailyEnergy.forEach(e => {
+      if (e.weight != null && Number.isFinite(e.weight) && e.weight > 0) {
+        map[e.date] = e.weight;
+      }
+    });
+    return map;
+  }, [dailyEnergy]);
 
   const handleTriggerEasterEgg = () => {
     setEasterEggActive(true);
@@ -70,6 +80,7 @@ function App() {
           <MonthFeed
             date={currentDate}
             meals={meals}
+            weightByDate={weightByDate}
             onAddMeal={addMeal}
             onDeleteMeal={deleteMeal}
             onUpdateMeal={updateMeal}

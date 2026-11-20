@@ -57,13 +57,14 @@ create policy "own rows" on meals
 
 create index meals_pull_cursor on meals (user_id, server_updated_at);
 
--- 일별 소모 칼로리 (건강 앱 데이터 업로드용, 앱에서는 읽기 전용으로 pull만 한다)
+-- 일별 소모 칼로리 및 아침 공복 체중 (앱에서는 읽기 전용으로 pull만 한다)
 create table public.daily_energy (
     id uuid default gen_random_uuid() primary key,
     user_id uuid references auth.users(id) on delete cascade not null,
     date date not null,
     active_calories numeric default 0 not null,
     basal_calories numeric default 0 not null,
+    weight_kg numeric,
     updated_at timestamptz default timezone('utc'::text, now()) not null,
 
     -- 하루에 한 개의 유저 기록만 보장 (중복 방지 및 Upsert 처리용)
@@ -80,4 +81,5 @@ with check (auth.uid() = user_id);
 
 -- [기존 프로젝트 업데이트] 위 테이블을 이미 만들었다면 SQL Editor에서 이것만 실행
 -- alter table meals add column if not exists sort_ts double precision;
+-- alter table public.daily_energy add column if not exists weight_kg numeric;
 -- notify pgrst, 'reload schema';

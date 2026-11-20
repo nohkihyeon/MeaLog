@@ -1,11 +1,14 @@
 import React, { useState, useMemo, useRef, useLayoutEffect } from 'react';
-import { Activity, Trophy, TrendingUp, TrendingDown, Sigma, Utensils, CalendarDays } from 'lucide-react';
-import { getEffectiveCalories } from '../utils/nutrition';
+import { Activity, Trophy, TrendingUp, TrendingDown, Sigma, Utensils, CalendarDays, Scale } from 'lucide-react';
+import { getEffectiveCalories, formatWeight } from '../utils/nutrition';
+import WeightOverlay from './WeightOverlay';
+import { WEIGHT_LINE_COLOR, computeWeightScale, buildWeightSeries } from '../utils/weightChart';
 
 const ACTIVE_COLOR = '#F2994A';
 const BASAL_COLOR = 'rgba(155, 81, 224, 0.55)';
 const BASAL_SOLID = '#9B51E0';
 const INTAKE_COLOR = '#56CCF2';
+const WEIGHT_COLOR = WEIGHT_LINE_COLOR;
 
 // 단위별 기간 옵션. days는 옵션 표시 여부(데이터 스팬 대비) 판정에도 쓰인다.
 const UNITS = [
@@ -130,15 +133,16 @@ const statsBetween = (energyMap, intakeMap, startKey, endKey, totalDays) => {
 };
 
 // ---- 스택/단일 바 차트 (버킷 수가 많아도 동작하도록 라벨은 듬성듬성) ----
-const EnergyChart = ({ buckets, metric, showMA, showIntake }) => {
+const EnergyChart = ({ buckets, metric, showMA, showIntake, showWeight = false }) => {
     const [hoveredIndex, setHoveredIndex] = useState(null);
 
     if (!buckets || buckets.length === 0) return null;
 
+    const hasWeightLine = showWeight && buckets.some(b => b.avgWeight != null);
     const width = 520;
     const height = 190;
     const padLeft = 40;
-    const padRight = 10;
+    const padRight = hasWeightLine ? 42 : 10;
     const padTop = 14;
     const padBottom = 26;
     const plotH = height - padTop - padBottom;
@@ -150,7 +154,7 @@ const EnergyChart = ({ buckets, metric, showMA, showIntake }) => {
 
     const values = buckets.map(valueOf).filter(v => v != null);
     const intakeValues = showIntake ? buckets.map(b => b.avgIntake).filter(v => v != null) : [];
-    if (values.length === 0 && intakeValues.length === 0) return null;
+    if (values.length === 0 && intakeValues.length === 0 && !hasWeightLine) return null;
     const maxVal = Math.max(...values, ...intakeValues, 100) * 1.08;
 
     const chartW = width - padLeft - padRight;
@@ -159,6 +163,7 @@ const EnergyChart = ({ buckets, metric, showMA, showIntake }) => {
     const barWidth = Math.max(Math.min(colWidth * 0.65, 20), 1.2);
     const labelStep = Math.ceil(n / 8);
 
+    const xFor = (idx) => padLeft + idx * colWidth + colWidth / 2;
     const yFor = (v) => padTop + plotH - (v / maxVal) * plotH;
 
     // 7버킷 이동평균 (일 단위 전용) — 결측 구간은 선을 끊는다
@@ -266,6 +271,8 @@ const EnergyChart = ({ buckets, metric, showMA, showIntake }) => {
                         }
                     }
 
+                    const hasHoverable = hasData || (hasWeightLine && b.avgWeight != null);
+
                     return (
                         <g key={idx}>
                             {bars}
@@ -275,8 +282,8 @@ const EnergyChart = ({ buckets, metric, showMA, showIntake }) => {
                                 width={colWidth}
                                 height={plotH}
                                 fill="transparent"
-                                style={{ cursor: hasData ? 'pointer' : 'default' }}
-                                onMouseEnter={() => setHoveredIndex(idx)}
+                                style={{ cursor: hasHoverable ? 'pointer' : 'default' }}
+                                onMouseEnter={() => hasHoverable && setHoveredIndex(idx)}
                                 onMouseLeave={() => setHoveredIndex(null)}
                             />
                             {showLabel && (
@@ -330,10 +337,24 @@ const EnergyChart = ({ buckets, metric, showMA, showIntake }) => {
                         ))}
                     </>
                 )}
+
+                {/* 공복 체중 꺾은선 (우측 kg 축 오버레이) */}
+                {hasWeightLine && (
+                    <WeightOverlay
+                        buckets={buckets}
+                        xFor={xFor}
+                        padTop={padTop}
+                        plotH={plotH}
+                        rightAxisX={width - padRight + 6}
+                        showRightAxis={true}
+                        showDots={n <= 45}
+                        hoveredIndex={hoveredIndex}
+                    />
+                )}
             </svg>
 
             {/* 범례 */}
-            <div style={{ display: 'flex', gap: '14px', justifyContent: 'center', marginTop: '0.4rem', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+            <div style={{ display: 'flex', gap: '14px', justifyContent: 'center', flexWrap: 'wrap', marginTop: '0.4rem', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
                 {metric === 'total' ? (
                     <>
                         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -359,10 +380,15 @@ const EnergyChart = ({ buckets, metric, showMA, showIntake }) => {
                         <span style={{ width: '12px', height: '2px', backgroundColor: INTAKE_COLOR, borderRadius: '1px' }} />섭취 칼로리
                     </span>
                 )}
+                {hasWeightLine && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span style={{ width: '12px', height: '2px', backgroundColor: WEIGHT_COLOR, borderRadius: '1px' }} />공복 체중
+                    </span>
+                )}
             </div>
 
             {/* 툴팁 */}
-            {hovered && hovered.recorded > 0 && (
+            {hovered && (hovered.recorded > 0 || (hasWeightLine && hovered.avgWeight != null)) && (
                 <div style={{
                     position: 'absolute',
                     left: `${tipPct}%`,
@@ -386,18 +412,22 @@ const EnergyChart = ({ buckets, metric, showMA, showIntake }) => {
                     <span style={{ color: 'var(--text-secondary)', fontSize: '0.65rem', alignSelf: 'center', marginBottom: '2px' }}>
                         {hovered.periodLabel}
                     </span>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
-                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🔥 총 소모</span>
-                        <span>{Math.round(hovered.avgTotal).toLocaleString()} kcal</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
-                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🏃 활동</span>
-                        <span style={{ color: ACTIVE_COLOR }}>{Math.round(hovered.avgActive).toLocaleString()} kcal</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
-                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>💤 기초</span>
-                        <span style={{ color: BASAL_SOLID }}>{Math.round(hovered.avgBasal).toLocaleString()} kcal</span>
-                    </div>
+                    {hovered.recorded > 0 && (
+                        <>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🔥 총 소모</span>
+                                <span>{Math.round(hovered.avgTotal).toLocaleString()} kcal</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🏃 활동</span>
+                                <span style={{ color: ACTIVE_COLOR }}>{Math.round(hovered.avgActive).toLocaleString()} kcal</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>💤 기초</span>
+                                <span style={{ color: BASAL_SOLID }}>{Math.round(hovered.avgBasal).toLocaleString()} kcal</span>
+                            </div>
+                        </>
+                    )}
                     {showIntake && hovered.avgIntake != null && (
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>🍽 섭취</span>
@@ -413,6 +443,12 @@ const EnergyChart = ({ buckets, metric, showMA, showIntake }) => {
                             <span style={{ color: hoveredBalance > 0 ? '#EB5757' : '#27AE60' }}>
                                 {hoveredBalance > 0 ? '+' : ''}{Math.round(hoveredBalance).toLocaleString()} kcal
                             </span>
+                        </div>
+                    )}
+                    {hovered.avgWeight != null && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>⚖️ 공복 체중</span>
+                            <span style={{ color: WEIGHT_COLOR }}>{formatWeight(hovered.avgWeight)} kg</span>
                         </div>
                     )}
                     {hovered.totalDays > 1 && (
@@ -478,7 +514,7 @@ const balanceColor = (value, scale) => {
         : `rgba(235, 87, 87, ${HEATMAP_ALPHA[level]})`;
 };
 
-const ActivityHeatmap = ({ energyMap, intakeMap, totalDays }) => {
+const ActivityHeatmap = ({ energyMap, intakeMap, weightMap = {}, totalDays }) => {
     const [mode, setMode] = useState('active');
     const [selected, setSelected] = useState(null);
     const scrollRef = useRef(null);
@@ -689,6 +725,11 @@ const ActivityHeatmap = ({ energyMap, intakeMap, totalDays }) => {
                                 </span>
                             )}
                             {(selected.energy || selected.intake > 0) && ' kcal'}
+                            {weightMap[selected.key] != null && (
+                                <span style={{ color: WEIGHT_COLOR, fontWeight: 600 }}>
+                                    {` · 공복 ${formatWeight(weightMap[selected.key])} kg`}
+                                </span>
+                            )}
                         </>
                     ) : (
                         <span style={{ color: 'var(--text-tertiary)' }}>칸을 누르면 그날 기록이 보여요</span>
@@ -706,12 +747,266 @@ const ActivityHeatmap = ({ energyMap, intakeMap, totalDays }) => {
     );
 };
 
+// ---- 아침 공복 체중 추이 차트 ----
+const WeightChart = ({ buckets, showMA }) => {
+    const [hoveredIndex, setHoveredIndex] = useState(null);
+
+    if (!buckets || buckets.length === 0) return null;
+
+    const validPoints = buckets
+        .map((b, idx) => (b.avgWeight != null ? { idx, val: b.avgWeight, b } : null))
+        .filter(Boolean);
+    if (validPoints.length === 0) return null;
+
+    const width = 520;
+    const height = 185;
+    const padLeft = 40;
+    const padRight = 10;
+    const padTop = 14;
+    const padBottom = 26;
+    const plotH = height - padTop - padBottom;
+    const chartW = width - padLeft - padRight;
+    const n = buckets.length;
+    const colWidth = chartW / n;
+    const labelStep = Math.ceil(n / 8);
+
+    const scale = computeWeightScale(validPoints.map(p => p.val));
+    if (!scale) return null;
+    const { yMin, ySpan } = scale;
+
+    const xFor = (idx) => padLeft + idx * colWidth + colWidth / 2;
+    const yFor = (v) => padTop + plotH - ((v - yMin) / ySpan) * plotH;
+
+    // 7일 이동평균 (일 단위 전용)
+    const maValues = buckets.map((_, idx) => {
+        if (!showMA || buckets[idx].avgWeight == null) return null;
+        const win = [];
+        for (let k = Math.max(0, idx - 6); k <= idx; k++) {
+            if (buckets[k].avgWeight != null) win.push(buckets[k].avgWeight);
+        }
+        return win.length >= 3 ? win.reduce((s, v) => s + v, 0) / win.length : null;
+    });
+
+    let maPath = '';
+    let maPen = false;
+    maValues.forEach((v, idx) => {
+        if (v == null) { maPen = false; return; }
+        const pt = `${xFor(idx)},${yFor(v)}`;
+        maPath += maPen ? ` L ${pt}` : ` M ${pt}`;
+        maPen = true;
+    });
+
+    const { solidSegments, gapSegments } = buildWeightSeries(buckets, (b) => b.avgWeight, xFor, yFor);
+
+    // 실선 아래 은은한 영역 채우기 (연속 구간 기준)
+    const areaPaths = [];
+    let run = [];
+    const flushRun = () => {
+        if (run.length >= 2) {
+            const base = padTop + plotH;
+            const line = run.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${xFor(p.idx)},${yFor(p.val)}`).join(' ');
+            areaPaths.push(`${line} L ${xFor(run[run.length - 1].idx)},${base} L ${xFor(run[0].idx)},${base} Z`);
+        }
+        run = [];
+    };
+    buckets.forEach((b, idx) => {
+        if (b.avgWeight != null) run.push({ idx, val: b.avgWeight });
+        else flushRun();
+    });
+    flushRun();
+
+    const showDots = n <= 45;
+    const hovered = hoveredIndex !== null && buckets[hoveredIndex]?.avgWeight != null ? buckets[hoveredIndex] : null;
+    const hoveredPosInValid = hovered ? validPoints.findIndex(p => p.idx === hoveredIndex) : -1;
+    const prevValidWeight = hoveredPosInValid > 0 ? validPoints[hoveredPosInValid - 1].val : null;
+    const hoveredDelta = hovered && prevValidWeight != null ? hovered.avgWeight - prevValidWeight : null;
+    const hoveredMa = hoveredIndex !== null ? maValues[hoveredIndex] : null;
+    const tipPct = hovered ? ((xFor(hoveredIndex)) / width) * 100 : 0;
+
+    return (
+        <div style={{ position: 'relative', width: '100%', marginTop: '1.25rem' }}>
+            <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="100%" style={{ overflow: 'visible' }}>
+                <defs>
+                    <linearGradient id="weightAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={WEIGHT_COLOR} stopOpacity="0.22" />
+                        <stop offset="100%" stopColor={WEIGHT_COLOR} stopOpacity="0" />
+                    </linearGradient>
+                </defs>
+
+                {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
+                    const val = yMin + ySpan * ratio;
+                    const y = padTop + (1 - ratio) * plotH;
+                    return (
+                        <g key={idx}>
+                            <line
+                                x1={padLeft} y1={y} x2={width - padRight} y2={y}
+                                stroke="var(--border-color)" strokeWidth="1" strokeDasharray="4 4"
+                            />
+                            <text x={padLeft - 8} y={y + 3} fill="var(--text-tertiary)" fontSize="8" textAnchor="end">
+                                {formatWeight(val)}
+                            </text>
+                        </g>
+                    );
+                })}
+
+                {areaPaths.map((d, idx) => (
+                    <path key={idx} d={d} fill="url(#weightAreaGrad)" />
+                ))}
+
+                {gapSegments.map((s, idx) => (
+                    <line
+                        key={`gap-${idx}`}
+                        x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
+                        stroke={WEIGHT_COLOR} strokeWidth="1.4" strokeDasharray="3 3" opacity="0.45"
+                    />
+                ))}
+
+                {solidSegments.map((s, idx) => (
+                    <line
+                        key={`solid-${idx}`}
+                        x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
+                        stroke={WEIGHT_COLOR} strokeWidth="2" strokeLinecap="round"
+                    />
+                ))}
+
+                {showMA && maPath && (
+                    <path
+                        d={maPath}
+                        fill="none"
+                        stroke="var(--text-primary)"
+                        strokeWidth="1.4"
+                        opacity="0.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    />
+                )}
+
+                {hovered && (
+                    <line
+                        x1={xFor(hoveredIndex)} y1={padTop}
+                        x2={xFor(hoveredIndex)} y2={padTop + plotH}
+                        stroke="var(--border-color)" strokeWidth="1"
+                    />
+                )}
+
+                {validPoints.map((p) => {
+                    const isHovered = hoveredIndex === p.idx;
+                    if (!showDots && !isHovered && validPoints.length > 1) return null;
+                    return (
+                        <circle
+                            key={p.idx}
+                            cx={xFor(p.idx)} cy={yFor(p.val)}
+                            r={isHovered ? 3.8 : 2.5}
+                            fill={WEIGHT_COLOR}
+                            stroke="var(--bg-secondary, #1E1E1E)"
+                            strokeWidth="1.2"
+                        />
+                    );
+                })}
+
+                {buckets.map((b, idx) => {
+                    const isHovered = hoveredIndex === idx;
+                    const showLabel = (idx % labelStep === 0 && n - 1 - idx >= labelStep / 2) || idx === n - 1;
+                    return (
+                        <g key={idx}>
+                            <rect
+                                x={padLeft + idx * colWidth}
+                                y={padTop}
+                                width={colWidth}
+                                height={plotH}
+                                fill="transparent"
+                                style={{ cursor: b.avgWeight != null ? 'pointer' : 'default' }}
+                                onMouseEnter={() => b.avgWeight != null && setHoveredIndex(idx)}
+                                onMouseLeave={() => setHoveredIndex(null)}
+                                onClick={() => b.avgWeight != null && setHoveredIndex(prev => prev === idx ? null : idx)}
+                            />
+                            {showLabel && (
+                                <text
+                                    x={xFor(idx)}
+                                    y={height - 8}
+                                    fill={isHovered ? 'var(--text-primary)' : 'var(--text-secondary)'}
+                                    fontSize="8.5"
+                                    textAnchor="middle"
+                                >
+                                    {b.label}
+                                </text>
+                            )}
+                        </g>
+                    );
+                })}
+            </svg>
+
+            <div style={{ display: 'flex', gap: '14px', justifyContent: 'center', marginTop: '0.4rem', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{ width: '12px', height: '2px', backgroundColor: WEIGHT_COLOR, borderRadius: '1px' }} />공복 체중
+                </span>
+                {showMA && maPath && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span style={{ width: '12px', height: '2px', backgroundColor: 'var(--text-primary)', opacity: 0.5 }} />7일 이동평균
+                    </span>
+                )}
+            </div>
+
+            {hovered && (
+                <div style={{
+                    position: 'absolute',
+                    left: `${tipPct}%`,
+                    top: 0,
+                    transform: `translate(-${tipPct}%, -100%)`,
+                    backgroundColor: 'var(--bg-tertiary)',
+                    border: '1px solid var(--border-color)',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '8px',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    pointerEvents: 'none',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                    color: 'var(--text-primary)',
+                    whiteSpace: 'nowrap',
+                    zIndex: 10,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                }}>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.65rem', alignSelf: 'center', marginBottom: '2px' }}>
+                        {hovered.periodLabel}
+                    </span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>⚖️ 공복 체중</span>
+                        <span style={{ color: WEIGHT_COLOR }}>{formatWeight(hovered.avgWeight)} kg</span>
+                    </div>
+                    {hoveredMa != null && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>📈 7일 평균</span>
+                            <span>{formatWeight(hoveredMa)} kg</span>
+                        </div>
+                    )}
+                    {hoveredDelta != null && Math.abs(hoveredDelta) >= 0.01 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>↕ 직전 기록 대비</span>
+                            <span style={{ color: hoveredDelta <= 0 ? WEIGHT_COLOR : '#F2994A' }}>
+                                {hoveredDelta > 0 ? '+' : '−'}{formatWeight(Math.abs(hoveredDelta))} kg
+                            </span>
+                        </div>
+                    )}
+                    {hovered.totalDays > 1 && (
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: '0.65rem', alignSelf: 'center', marginTop: '2px' }}>
+                            측정일: {hovered.weightDays}/{hovered.totalDays}일 (평균)
+                        </span>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
     // 처음 열면 최근 30일을 하루 단위로 보여준다
     const [unit, setUnit] = useState('day');
     const [rangeKey, setRangeKey] = useState('30d');
     const [metric, setMetric] = useState('total');
     const [showIntake, setShowIntake] = useState(true);
+    const [showWeight, setShowWeight] = useState(true);
 
     // date → 그날 섭취 칼로리 합 (직접 입력 없으면 탄단지 4/4/9 환산값 사용)
     const intakeMap = useMemo(() => {
@@ -739,6 +1034,18 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
         });
         return map;
     }, [dailyEnergy, manualBmr]);
+
+    // date → 아침 공복 체중 (kg)
+    const weightMap = useMemo(() => {
+        const map = {};
+        dailyEnergy.forEach(e => {
+            if (e.weight != null && Number.isFinite(e.weight) && e.weight > 0) {
+                map[e.date] = e.weight;
+            }
+        });
+        return map;
+    }, [dailyEnergy]);
+    const hasWeightData = Object.keys(weightMap).length > 0;
 
     const { minDateStr, spanDays } = useMemo(() => {
         if (dailyEnergy.length === 0) return { minDateStr: null, spanDays: 0 };
@@ -781,6 +1088,7 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
         const aggregate = (dates) => {
             let active = 0, basal = 0, recorded = 0;
             let intake = 0, intakeDays = 0;
+            let weightSum = 0, weightDays = 0;
             dates.forEach(key => {
                 const e = energyMap[key];
                 if (e) {
@@ -793,6 +1101,11 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
                     intake += kcal;
                     intakeDays += 1;
                 }
+                const w = weightMap[key];
+                if (w != null) {
+                    weightSum += w;
+                    weightDays += 1;
+                }
             });
             return {
                 recorded,
@@ -802,6 +1115,8 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
                 // 식단 기록이 있는 날만으로 일평균 섭취 계산 (없으면 null → 선 끊김)
                 avgIntake: intakeDays ? intake / intakeDays : null,
                 intakeDays,
+                avgWeight: weightDays ? weightSum / weightDays : null,
+                weightDays,
             };
         };
 
@@ -884,7 +1199,41 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
         }
 
         return result;
-    }, [dailyEnergy, energyMap, intakeMap, unit, range, minDateStr]);
+    }, [dailyEnergy, energyMap, intakeMap, weightMap, unit, range, minDateStr]);
+
+    // ---- 선택 범위 내 아침 공복 체중 요약 ----
+    const weightSummary = useMemo(() => {
+        if (!hasWeightData || !range) return null;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const totalDays = Number.isFinite(range.days)
+            ? range.days
+            : Math.floor((today - new Date(minDateStr)) / 86400000) + 1;
+        const start = new Date(today);
+        start.setDate(today.getDate() - totalDays + 1);
+        const startKey = dateKey(start);
+        const todayKey = dateKey(today);
+
+        const inRange = Object.entries(weightMap)
+            .filter(([date]) => date >= startKey && date <= todayKey)
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([date, weight]) => ({ date, weight }));
+
+        if (inRange.length === 0) return { count: 0 };
+        const first = inRange[0];
+        const latest = inRange[inRange.length - 1];
+        const values = inRange.map(d => d.weight);
+        const avg = values.reduce((s, v) => s + v, 0) / values.length;
+        return {
+            count: inRange.length,
+            first,
+            latest,
+            change: inRange.length >= 2 ? latest.weight - first.weight : null,
+            avg,
+            min: Math.min(...values),
+            max: Math.max(...values),
+        };
+    }, [hasWeightData, weightMap, range, minDateStr]);
 
     // ---- 선택 범위 + 바로 앞 같은 길이 구간의 일 단위 통계 ----
     const { rangeStats, prevStats } = useMemo(() => {
@@ -1017,6 +1366,22 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
                                 🍽 섭취
                             </button>
                         )}
+                        {/* 공복 체중 꺾은선 토글 */}
+                        {hasWeightData && (
+                            <button
+                                onClick={() => setShowWeight(v => !v)}
+                                style={{
+                                    padding: '0.3rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600,
+                                    border: `1px solid ${showWeight ? 'rgba(45, 212, 191, 0.5)' : 'var(--border-color)'}`,
+                                    cursor: 'pointer',
+                                    backgroundColor: showWeight ? 'rgba(45, 212, 191, 0.15)' : 'transparent',
+                                    color: showWeight ? WEIGHT_COLOR : 'var(--text-secondary)',
+                                    transition: 'all 0.15s ease'
+                                }}
+                            >
+                                ⚖️ 체중
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -1076,12 +1441,72 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
                         선택한 기간에 소모 칼로리 기록이 없습니다.
                     </p>
                 ) : (
-                    <EnergyChart buckets={buckets} metric={metric} showMA={unit === 'day'} showIntake={showIntake && metric === 'total'} />
+                    <EnergyChart
+                        buckets={buckets}
+                        metric={metric}
+                        showMA={unit === 'day'}
+                        showIntake={showIntake && metric === 'total'}
+                        showWeight={showWeight && hasWeightData}
+                    />
                 )}
             </div>
 
+            {/* 아침 공복 체중 추이 (체중 기록이 있는 경우에만 노출) */}
+            {hasWeightData && (
+                <div className="apple-card" style={{ marginBottom: '2rem' }}>
+                    <div className="apple-card-title" style={{ marginBottom: '0.25rem' }}>
+                        <Scale size={18} color={WEIGHT_COLOR} />
+                        <span>아침 공복 체중 추이</span>
+                    </div>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                        {range?.label} 동안의 {unit === 'day' ? '일별 공복 체중' : unit === 'week' ? '주별 평균 체중' : unit === 'month' ? '월별 평균 체중' : '연도별 평균 체중'}
+                    </p>
+
+                    {weightSummary && weightSummary.count > 0 ? (
+                        <>
+                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '1.25rem' }}>
+                                <Tile
+                                    label="최근 체중"
+                                    value={formatWeight(weightSummary.latest.weight)}
+                                    unit="kg"
+                                    color={WEIGHT_COLOR}
+                                    sub={(() => {
+                                        const d = fromKey(weightSummary.latest.date);
+                                        return `${d.getMonth() + 1}/${d.getDate()} (${DAY_NAMES[d.getDay()]})`;
+                                    })()}
+                                />
+                                <Tile
+                                    label="기간 변화"
+                                    value={weightSummary.change != null
+                                        ? `${weightSummary.change > 0 ? '+' : weightSummary.change < 0 ? '−' : ''}${formatWeight(Math.abs(weightSummary.change))}`
+                                        : '–'}
+                                    unit={weightSummary.change != null ? 'kg' : ''}
+                                    color={weightSummary.change == null
+                                        ? undefined
+                                        : weightSummary.change <= 0 ? WEIGHT_COLOR : '#F2994A'}
+                                    sub={weightSummary.change != null
+                                        ? `${formatWeight(weightSummary.first.weight)} → ${formatWeight(weightSummary.latest.weight)} kg`
+                                        : '2일 이상 기록 시 표시'}
+                                />
+                                <Tile
+                                    label="기간 평균"
+                                    value={formatWeight(weightSummary.avg)}
+                                    unit="kg"
+                                    sub={`최저 ${formatWeight(weightSummary.min)} · 최고 ${formatWeight(weightSummary.max)}`}
+                                />
+                            </div>
+                            <WeightChart buckets={buckets} showMA={unit === 'day'} />
+                        </>
+                    ) : (
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-tertiary)', marginTop: '1.25rem' }}>
+                            선택한 기간에 공복 체중 기록이 없습니다.
+                        </p>
+                    )}
+                </div>
+            )}
+
             {rangeStats && rangeStats.recorded > 0 && (
-                <ActivityHeatmap energyMap={energyMap} intakeMap={intakeMap} totalDays={rangeStats.totalDays} />
+                <ActivityHeatmap energyMap={energyMap} intakeMap={intakeMap} weightMap={weightMap} totalDays={rangeStats.totalDays} />
             )}
 
             {/* 인사이트 */}

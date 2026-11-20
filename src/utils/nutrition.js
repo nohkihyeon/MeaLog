@@ -2,6 +2,12 @@
 // 정수면 정수로, 소수가 있으면 한 자리까지만 표시된다. (90.2, 154 등)
 export const round1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
 
+// 체중 표기용: 기본 1자리(예: 68.0, 68.4), 소수 둘째 자리가 0이 아니면 2자리까지 표시(예: 68.45).
+export const formatWeight = (w) => {
+    const r = Math.round(Number(w) * 100) / 100;
+    return Math.abs(r * 10 - Math.round(r * 10)) < 1e-6 ? r.toFixed(1) : r.toFixed(2);
+};
+
 // 탄단지(g)로 칼로리를 환산: 탄수 4, 단백질 4, 지방 9 kcal/g
 export const calcMacroKcal = (meal) =>
     round1(
