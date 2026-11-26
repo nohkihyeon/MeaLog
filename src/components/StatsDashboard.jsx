@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Flame, Target, TrendingUp, Sparkles, Trophy, ChevronRight, Apple, Settings } from 'lucide-react';
+import React, { useState, useMemo, useRef } from 'react';
+import { Flame, Target, TrendingUp, Sparkles, Trophy, ChevronLeft, ChevronRight, Apple, Settings, RotateCcw } from 'lucide-react';
 import { getEffectiveCalories, formatWeight } from '../utils/nutrition';
 import CalorieBalanceCard from './CalorieBalanceCard';
 import WeightOverlay from './WeightOverlay';
@@ -18,7 +18,7 @@ const prevBucket = (chartData, name) => {
 };
 
 // Custom SVG Bar Chart Component supporting multi-metric overlay
-const BarChart = ({ data, visibleMetrics, targetCalorie }) => {
+const BarChart = ({ data, visibleMetrics, targetCalorie, selectedKey = null, onSelectPeriod }) => {
     const [hoveredIndex, setHoveredIndex] = useState(null);
     const [hoveredPos, setHoveredPos] = useState({ x: 0, y: 0 });
 
@@ -153,6 +153,24 @@ const BarChart = ({ data, visibleMetrics, targetCalorie }) => {
                     );
                 })}
 
+                {/* Selected Period Highlight Band */}
+                {selectedKey != null && data.map((item, idx) => {
+                    if (item.key !== selectedKey) return null;
+                    return (
+                        <rect
+                            key={`sel-${idx}`}
+                            x={paddingLeft + idx * colWidth + 2}
+                            y={paddingTop}
+                            width={Math.max(colWidth - 4, 2)}
+                            height={height - paddingTop - paddingBottom}
+                            rx="6"
+                            fill="rgba(235, 87, 87, 0.08)"
+                            stroke="rgba(235, 87, 87, 0.3)"
+                            strokeWidth="1"
+                        />
+                    );
+                })}
+
                 {/* Bars (Calories) — 기록 없는 기간은 막대를 그리지 않는다 */}
                 {visibleMetrics.calorie && data.map((item, idx) => {
                     if (!item.loggedDays) return null;
@@ -161,15 +179,22 @@ const BarChart = ({ data, visibleMetrics, targetCalorie }) => {
                     const barHeight = (item.value / maxVal) * (height - paddingTop - paddingBottom);
                     const y = height - paddingBottom - barHeight;
                     const isHovered = hoveredIndex === idx;
+                    const isSelected = selectedKey != null && item.key === selectedKey;
+                    const isDimmed = selectedKey != null && !isSelected && !isHovered;
                     // 목표를 넘긴 만큼은 막대 윗부분을 진하게 칠해 초과량이 바로 보이게 한다
                     const overHeight = showTarget && item.value > targetCalorie
                         ? ((item.value - targetCalorie) / maxVal) * (height - paddingTop - paddingBottom)
                         : 0;
+                    const baseFill = isHovered
+                        ? (overHeight > 0 ? 'rgba(235, 87, 87, 0.72)' : 'var(--accent-primary)')
+                        : isSelected
+                            ? (overHeight > 0 ? 'rgba(235, 87, 87, 0.58)' : 'var(--accent-primary)')
+                            : 'rgba(235, 87, 87, 0.35)';
 
                     return (
                         <g
                             key={idx}
-                            style={{ cursor: 'pointer' }}
+                            style={{ cursor: 'pointer', opacity: isDimmed ? 0.42 : 1, transition: 'opacity 0.2s ease' }}
                             onMouseEnter={() => {
                                 setHoveredIndex(idx);
                                 setHoveredPos({
@@ -185,7 +210,7 @@ const BarChart = ({ data, visibleMetrics, targetCalorie }) => {
                                 width={barWidth}
                                 height={Math.max(barHeight, 2)}
                                 rx="3"
-                                fill={isHovered ? 'var(--accent-primary)' : 'rgba(235, 87, 87, 0.35)'}
+                                fill={baseFill}
                                 style={{ transition: 'all 0.2s ease' }}
                             />
                             {overHeight > 0 && (
@@ -195,7 +220,7 @@ const BarChart = ({ data, visibleMetrics, targetCalorie }) => {
                                     width={barWidth}
                                     height={overHeight}
                                     rx="3"
-                                    fill={isHovered ? 'var(--accent-primary)' : 'rgba(235, 87, 87, 0.85)'}
+                                    fill={isHovered || isSelected ? 'var(--accent-primary)' : 'rgba(235, 87, 87, 0.85)'}
                                     style={{ transition: 'all 0.2s ease' }}
                                 />
                             )}
@@ -299,26 +324,27 @@ const BarChart = ({ data, visibleMetrics, targetCalorie }) => {
                 {data.map((item, idx) => {
                     const cx = getColCenterX(idx);
                     const isHovered = hoveredIndex === idx;
+                    const isSelected = selectedKey != null && item.key === selectedKey;
 
                     return (
                         <g key={idx}>
                             {visibleMetrics.burn && item.burn != null && (
-                                <circle cx={cx} cy={getKcalY(item.burn)} r={isHovered ? 4 : 2} fill={BURN_COLOR} />
+                                <circle cx={cx} cy={getKcalY(item.burn)} r={isHovered || isSelected ? 4 : 2} fill={BURN_COLOR} />
                             )}
                             {visibleMetrics.active && item.active != null && (
-                                <circle cx={cx} cy={getKcalY(item.active)} r={isHovered ? 4 : 2} fill={ACTIVE_COLOR} />
+                                <circle cx={cx} cy={getKcalY(item.active)} r={isHovered || isSelected ? 4 : 2} fill={ACTIVE_COLOR} />
                             )}
                             {visibleMetrics.carbs && item.loggedDays > 0 && (
-                                <circle cx={cx} cy={getMacroY(item.avgCarbs)} r={isHovered ? 4 : 2} fill="var(--accent-tertiary)" />
+                                <circle cx={cx} cy={getMacroY(item.avgCarbs)} r={isHovered || isSelected ? 4 : 2} fill="var(--accent-tertiary)" />
                             )}
                             {visibleMetrics.protein && item.loggedDays > 0 && (
-                                <circle cx={cx} cy={getMacroY(item.avgProtein)} r={isHovered ? 4 : 2} fill="var(--accent-quaternary)" />
+                                <circle cx={cx} cy={getMacroY(item.avgProtein)} r={isHovered || isSelected ? 4 : 2} fill="var(--accent-quaternary)" />
                             )}
                             {visibleMetrics.fat && item.loggedDays > 0 && (
-                                <circle cx={cx} cy={getMacroY(item.avgFat)} r={isHovered ? 4 : 2} fill="var(--accent-secondary)" />
+                                <circle cx={cx} cy={getMacroY(item.avgFat)} r={isHovered || isSelected ? 4 : 2} fill="var(--accent-secondary)" />
                             )}
 
-                            {/* Invisible full-height bar for hover triggers */}
+                            {/* Invisible full-height bar for hover & click triggers */}
                             <rect
                                 x={paddingLeft + idx * colWidth}
                                 y={paddingTop}
@@ -326,7 +352,7 @@ const BarChart = ({ data, visibleMetrics, targetCalorie }) => {
                                 height={height - paddingTop - paddingBottom}
                                 fill="transparent"
                                 style={{ cursor: 'pointer' }}
-                                onMouseEnter={(e) => {
+                                onMouseEnter={() => {
                                     setHoveredIndex(idx);
                                     setHoveredPos({
                                         x: cx,
@@ -334,20 +360,24 @@ const BarChart = ({ data, visibleMetrics, targetCalorie }) => {
                                     });
                                 }}
                                 onMouseLeave={() => setHoveredIndex(null)}
+                                onClick={() => onSelectPeriod?.(item.key)}
                             />
 
                             {/* X Axis Labels */}
                             {(barCount - 1 - idx) % labelStep === 0 && <text
                                 x={cx}
                                 y={height - 8}
-                                fill={isHovered ? 'var(--text-primary)' : 'var(--text-secondary)'}
+                                fill={isSelected || isHovered ? 'var(--text-primary)' : 'var(--text-secondary)'}
                                 fontSize="9"
-                                fontWeight={isHovered ? '600' : '400'}
+                                fontWeight={isSelected ? '700' : isHovered ? '600' : '400'}
                                 textAnchor="middle"
                                 style={{ transition: 'all 0.2s ease' }}
                             >
                                 {item.label}
                             </text>}
+                            {isSelected && (
+                                <circle cx={cx} cy={height - 2} r="1.8" fill="var(--accent-primary)" />
+                            )}
                         </g>
                     );
                 })}
@@ -455,6 +485,11 @@ const BarChart = ({ data, visibleMetrics, targetCalorie }) => {
                             기록일: {data[hoveredIndex].loggedDays}일
                         </span>
                     )}
+                    {onSelectPeriod && (
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: '0.62rem', alignSelf: 'center', marginTop: '1px' }}>
+                            {selectedKey === data[hoveredIndex].key ? '선택된 기간' : '클릭하여 상세 보기'}
+                        </span>
+                    )}
                 </div>
             )}
         </div>
@@ -505,6 +540,13 @@ const ActivityRing = ({ percentage, size = 100, strokeWidth = 10 }) => {
 
 const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
     const [viewType, setViewType] = useState('day'); // 'day' | 'week' | 'month' | 'year' — 처음엔 최근 30일 일간
+    const [selectedPeriodKey, setSelectedPeriodKey] = useState(null);
+    const topSummaryRef = useRef(null);
+
+    const handleViewTypeChange = (nextType) => {
+        setViewType(nextType);
+        setSelectedPeriodKey(null);
+    };
     const [targetCalorie, setTargetCalorie] = useState(() => {
         const saved = localStorage.getItem('mealog_target_calorie');
         return saved ? Number(saved) : 2000;
@@ -611,7 +653,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
 
     // 2. Generate stats based on viewType (day, week, month, year)
     const reportData = useMemo(() => {
-        if (meals.length === 0) return { chartData: [], summary: {} };
+        if (meals.length === 0) return { chartData: [], defaultSummary: {} };
 
         const today = new Date();
 
@@ -643,8 +685,10 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                 }
 
                 chartData.push({
+                    key,
                     label: i === 0 ? '오늘' : `${d.getMonth() + 1}/${d.getDate()}`,
                     periodLabel: `${yyyy}.${d.getMonth() + 1}.${d.getDate()} (${dayNames[d.getDay()]})`,
+                    displayName: i === 0 ? '오늘' : `${d.getMonth() + 1}/${d.getDate()} (${dayNames[d.getDay()]})`,
                     value: day ? day.calories : 0,
                     avgProtein: day ? day.protein : 0,
                     avgCarbs: day ? day.carbs : 0,
@@ -654,6 +698,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                     avgWeight: energy ? energy.weight : null,
                     loggedDays: day ? 1 : 0,
                     totalDays: 1,
+                    keys: [key],
                 });
             }
 
@@ -671,7 +716,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
 
             return {
                 chartData,
-                summary: {
+                defaultSummary: {
                     avgCal: logged > 0 ? sumCal / logged : 0,
                     avgProtein: logged > 0 ? sumP / logged : 0,
                     avgCarbs: logged > 0 ? sumC / logged : 0,
@@ -679,6 +724,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                     loggedDays: logged,
                     totalDays: DAY_RANGE,
                     periodName: `최근 ${DAY_RANGE}일`,
+                    periodLabel: `최근 ${DAY_RANGE}일 전체`,
                     keys,
                     prev: { avgCal: prevLogged > 0 ? prevCal / prevLogged : 0, loggedDays: prevLogged, totalDays: DAY_RANGE, name: `직전 ${DAY_RANGE}일` },
                 }
@@ -742,12 +788,16 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                 const avgC = loggedDays > 0 ? totalC / loggedDays : 0;
                 const avgF = loggedDays > 0 ? totalF / loggedDays : 0;
 
-                const label = `${monday.getMonth() + 1}/${monday.getDate()}`;
+                const key = dateKey(monday);
+                const label = i === 0 ? '이번 주' : `${monday.getMonth() + 1}/${monday.getDate()}`;
                 const periodLabel = `${monday.getFullYear()}.${monday.getMonth() + 1}.${monday.getDate()} ~ ${sunday.getMonth() + 1}.${sunday.getDate()}`;
+                const displayName = i === 0 ? '이번 주' : i === 1 ? '지난 주' : `${monday.getMonth() + 1}/${monday.getDate()} ~ ${sunday.getMonth() + 1}/${sunday.getDate()}`;
 
                 chartData.push({
+                    key,
                     label,
                     periodLabel,
+                    displayName,
                     value: avgCal,
                     avgProtein: avgP,
                     avgCarbs: avgC,
@@ -766,14 +816,15 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
 
             return {
                 chartData,
-                summary: {
+                defaultSummary: {
                     avgCal: currentWeek.value || 0,
                     avgProtein: currentWeek.avgProtein || 0,
                     avgCarbs: currentWeek.avgCarbs || 0,
                     avgFat: currentWeek.avgFat || 0,
                     loggedDays: currentWeek.loggedDays || 0,
                     totalDays: 7,
-                    periodName: '이번 주',
+                    periodName: currentWeek.displayName || '이번 주',
+                    periodLabel: currentWeek.periodLabel || '',
                     keys: currentWeek.keys || [],
                     prev: prevBucket(chartData, '지난 주'),
                 }
@@ -822,10 +873,14 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                 const avgP = loggedDays > 0 ? totalP / loggedDays : 0;
                 const avgC = loggedDays > 0 ? totalC / loggedDays : 0;
                 const avgF = loggedDays > 0 ? totalF / loggedDays : 0;
+                const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+                const displayName = i === 0 ? '이번 달' : (year === today.getFullYear() ? `${month + 1}월` : `${year}년 ${month + 1}월`);
 
                 chartData.push({
+                    key: monthKey,
                     label: `${month + 1}월`,
                     periodLabel: `${year}년 ${month + 1}월`,
+                    displayName,
                     value: avgCal,
                     avgProtein: avgP,
                     avgCarbs: avgC,
@@ -843,14 +898,15 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
 
             return {
                 chartData,
-                summary: {
+                defaultSummary: {
                     avgCal: currentMonth.value || 0,
                     avgProtein: currentMonth.avgProtein || 0,
                     avgCarbs: currentMonth.avgCarbs || 0,
                     avgFat: currentMonth.avgFat || 0,
                     loggedDays: currentMonth.loggedDays || 0,
                     totalDays: currentMonth.totalDays || 30,
-                    periodName: '이번 달',
+                    periodName: currentMonth.displayName || '이번 달',
+                    periodLabel: currentMonth.periodLabel || '',
                     keys: currentMonth.keys || [],
                     prev: prevBucket(chartData, '지난달'),
                 }
@@ -874,8 +930,6 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
             }
 
             const chartData = uniqueYears.map(yStr => {
-                const yearNum = Number(yStr);
-                
                 let totalCal = 0, totalP = 0, totalC = 0, totalF = 0, loggedDays = 0;
                 const keys = [];
 
@@ -908,10 +962,13 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                 const avgP = loggedDays > 0 ? totalP / loggedDays : 0;
                 const avgC = loggedDays > 0 ? totalC / loggedDays : 0;
                 const avgF = loggedDays > 0 ? totalF / loggedDays : 0;
+                const displayName = yStr === String(today.getFullYear()) ? '올해' : `${yStr}년`;
 
                 return {
+                    key: yStr,
                     label: `${yStr}년`,
                     periodLabel: `${yStr}년`,
+                    displayName,
                     value: avgCal,
                     avgProtein: avgP,
                     avgCarbs: avgC,
@@ -929,14 +986,15 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
 
             return {
                 chartData,
-                summary: {
+                defaultSummary: {
                     avgCal: currentYear.value || 0,
                     avgProtein: currentYear.avgProtein || 0,
                     avgCarbs: currentYear.avgCarbs || 0,
                     avgFat: currentYear.avgFat || 0,
                     loggedDays: currentYear.loggedDays || 0,
                     totalDays: 365,
-                    periodName: '올해',
+                    periodName: currentYear.displayName || '올해',
+                    periodLabel: currentYear.periodLabel || '',
                     keys: currentYear.keys || [],
                     prev: prevBucket(chartData, '작년'),
                 }
@@ -1032,8 +1090,69 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
         return list;
     }, [meals, dailyData]);
 
-    const { summary, chartData } = reportData;
+    const { chartData, defaultSummary } = reportData;
     const hasMeals = meals.length > 0;
+
+    const latestKey = chartData.length > 0 ? chartData[chartData.length - 1].key : null;
+    const effectiveSelectedKey = viewType === 'day' ? selectedPeriodKey : (selectedPeriodKey || latestKey);
+    const selectedIdx = effectiveSelectedKey ? chartData.findIndex(d => d.key === effectiveSelectedKey) : -1;
+    const isCustomSelection = selectedPeriodKey !== null && (viewType === 'day' || selectedPeriodKey !== latestKey);
+
+    const handleSelectPeriod = (key) => {
+        if (!key) return;
+        if (viewType === 'day') {
+            setSelectedPeriodKey(prev => (prev === key ? null : key));
+        } else if (key === latestKey) {
+            setSelectedPeriodKey(null);
+        } else {
+            setSelectedPeriodKey(prev => (prev === key ? null : key));
+        }
+    };
+
+    const canGoPrev = selectedIdx === -1
+        ? (viewType === 'day' && chartData.length > 0)
+        : selectedIdx > 0;
+    const canGoNext = selectedIdx !== -1 && selectedIdx < chartData.length - 1;
+
+    const handleStepPeriod = (delta) => {
+        if (chartData.length === 0) return;
+        if (selectedIdx === -1) {
+            if (delta < 0) {
+                setSelectedPeriodKey(chartData[chartData.length - 1].key);
+            }
+            return;
+        }
+        const nextIdx = selectedIdx + delta;
+        if (nextIdx < 0 || nextIdx >= chartData.length) return;
+        const nextKey = chartData[nextIdx].key;
+        setSelectedPeriodKey(viewType !== 'day' && nextKey === latestKey ? null : nextKey);
+    };
+
+    const summary = (() => {
+        if (selectedIdx === -1) {
+            return { ...defaultSummary, isSingleDay: false };
+        }
+        const bucket = chartData[selectedIdx];
+        const prevB = selectedIdx > 0 ? chartData[selectedIdx - 1] : null;
+        const prevName = !prevB ? null :
+            viewType === 'day' ? '전날' :
+            viewType === 'week' ? (selectedIdx === chartData.length - 1 ? '지난 주' : '직전 주') :
+            viewType === 'month' ? (selectedIdx === chartData.length - 1 ? '지난달' : prevB.label) :
+            (selectedIdx === chartData.length - 1 ? '작년' : prevB.label);
+        return {
+            avgCal: bucket.value || 0,
+            avgProtein: bucket.avgProtein || 0,
+            avgCarbs: bucket.avgCarbs || 0,
+            avgFat: bucket.avgFat || 0,
+            loggedDays: bucket.loggedDays || 0,
+            totalDays: bucket.totalDays || 1,
+            periodName: bucket.displayName || bucket.label,
+            periodLabel: bucket.periodLabel || bucket.label,
+            keys: bucket.keys || [],
+            prev: prevB ? { avgCal: prevB.value, loggedDays: prevB.loggedDays, totalDays: prevB.totalDays, name: prevName } : null,
+            isSingleDay: viewType === 'day',
+        };
+    })();
 
     // Macro sums for percent calculations
     const macroTotal = (summary.avgCarbs || 0) + (summary.avgProtein || 0) + (summary.avgFat || 0) || 1;
@@ -1053,9 +1172,13 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
     const proteinRatio = targetProtein > 0 ? ((summary.avgProtein || 0) / targetProtein) * 100 : 0;
     const fatRatio = targetFat > 0 ? ((summary.avgFat || 0) / targetFat) * 100 : 0;
 
-    // 직전 기간 대비 일평균 섭취 변화. 두 기간 모두 기록이 2일 이상 + 기간의 25% 이상일 때만 비교
+    // 직전 기간 대비 일평균 섭취 변화. 단일 일 선택 시에는 1일 기록이 있으면 비교, 다일 버킷은 2일 이상 + 25% 이상일 때만 비교
     // (월요일 아침처럼 하루치만 있을 때 비교하면 숫자가 크게 튄다)
-    const enoughDays = (s) => s && s.loggedDays >= Math.max(2, Math.ceil(s.totalDays * 0.25));
+    const enoughDays = (s) => {
+        if (!s) return false;
+        if (s.totalDays === 1) return s.loggedDays === 1;
+        return s.loggedDays >= Math.max(2, Math.ceil(s.totalDays * 0.25));
+    };
     const calDelta = enoughDays(summary) && enoughDays(summary.prev)
         ? { diff: summary.avgCal - summary.prev.avgCal, name: summary.prev.name }
         : null;
@@ -1084,25 +1207,25 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                 <div className="segmented-control">
                     <button
                         className={`segmented-button ${viewType === 'day' ? 'active' : ''}`}
-                        onClick={() => setViewType('day')}
+                        onClick={() => handleViewTypeChange('day')}
                     >
                         일간
                     </button>
                     <button
                         className={`segmented-button ${viewType === 'week' ? 'active' : ''}`}
-                        onClick={() => setViewType('week')}
+                        onClick={() => handleViewTypeChange('week')}
                     >
                         주간
                     </button>
                     <button 
                         className={`segmented-button ${viewType === 'month' ? 'active' : ''}`}
-                        onClick={() => setViewType('month')}
+                        onClick={() => handleViewTypeChange('month')}
                     >
                         월간
                     </button>
                     <button 
                         className={`segmented-button ${viewType === 'year' ? 'active' : ''}`}
-                        onClick={() => setViewType('year')}
+                        onClick={() => handleViewTypeChange('year')}
                     >
                         연간
                     </button>
@@ -1125,6 +1248,107 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                 </div>
             ) : (
                 <>
+                    {/* Period Context & Navigator Bar */}
+                    <div
+                        ref={topSummaryRef}
+                        style={{
+                            backgroundColor: 'var(--bg-secondary)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '14px',
+                            padding: '0.55rem 0.85rem',
+                            marginBottom: '1.25rem',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: '0.5rem',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <button
+                                type="button"
+                                onClick={() => handleStepPeriod(-1)}
+                                disabled={!canGoPrev}
+                                title="이전 기간"
+                                style={{
+                                    width: '28px',
+                                    height: '28px',
+                                    borderRadius: '8px',
+                                    border: '1px solid var(--border-color)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    opacity: canGoPrev ? 1 : 0.3,
+                                    cursor: canGoPrev ? 'pointer' : 'default',
+                                    backgroundColor: 'var(--bg-primary)',
+                                }}
+                            >
+                                <ChevronLeft size={15} />
+                            </button>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    {summary.periodName}
+                                </span>
+                                {summary.periodLabel && summary.periodLabel !== summary.periodName && (
+                                    <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                                        {summary.periodLabel}
+                                    </span>
+                                )}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => handleStepPeriod(1)}
+                                disabled={!canGoNext}
+                                title="다음 기간"
+                                style={{
+                                    width: '28px',
+                                    height: '28px',
+                                    borderRadius: '8px',
+                                    border: '1px solid var(--border-color)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    opacity: canGoNext ? 1 : 0.3,
+                                    cursor: canGoNext ? 'pointer' : 'default',
+                                    backgroundColor: 'var(--bg-primary)',
+                                }}
+                            >
+                                <ChevronRight size={15} />
+                            </button>
+                        </div>
+
+                        {isCustomSelection ? (
+                            <button
+                                type="button"
+                                onClick={() => setSelectedPeriodKey(null)}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '5px',
+                                    padding: '0.3rem 0.7rem',
+                                    borderRadius: '999px',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 600,
+                                    backgroundColor: 'rgba(235, 87, 87, 0.14)',
+                                    color: 'var(--accent-primary)',
+                                    border: '1px solid rgba(235, 87, 87, 0.3)',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                <RotateCcw size={12} />
+                                <span>
+                                    {viewType === 'day' ? '최근 30일로' :
+                                     viewType === 'week' ? '이번 주로' :
+                                     viewType === 'month' ? '이번 달로' : '올해로'}
+                                </span>
+                            </button>
+                        ) : (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                                차트 막대를 눌러 기간을 선택할 수 있어요
+                            </span>
+                        )}
+                    </div>
+
                     {/* Apple Dash Grid */}
                     <div className="apple-grid">
                         
@@ -1133,7 +1357,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                             <div>
                                 <div className="apple-card-title">
                                     <Flame size={18} color="var(--accent-primary)" />
-                                    <span>일평균 칼로리 ({summary.periodName})</span>
+                                    <span>{summary.isSingleDay ? '섭취 칼로리' : '일평균 칼로리'} ({summary.periodName})</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem' }}>
                                     <div>
@@ -1144,8 +1368,16 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                                             </span>
                                         </div>
                                         <p style={{ fontSize: '0.85rem', color: 'var(--text-tertiary)', marginTop: '0.5rem' }}>
-                                            {summary.totalDays}일 중 {summary.loggedDays}일 기록됨
-                                            {summary.loggedDays > 0 && ` · 목표 이하 ${hitDays}일`}
+                                            {summary.isSingleDay ? (
+                                                summary.loggedDays > 0
+                                                    ? (hitDays > 0 ? '목표 칼로리 이하 달성' : '목표 칼로리 초과')
+                                                    : '식단 기록 없음'
+                                            ) : (
+                                                <>
+                                                    {summary.totalDays}일 중 {summary.loggedDays}일 기록됨
+                                                    {summary.loggedDays > 0 && ` · 목표 이하 ${hitDays}일`}
+                                                </>
+                                            )}
                                         </p>
                                         {calDelta && (
                                             <p style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)', marginTop: '0.25rem' }}>
@@ -1196,7 +1428,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                                 <div className="apple-card-title" style={{ margin: 0 }}>
                                     <Target size={18} color="var(--accent-secondary)" />
-                                    <span>평균 탄단지 비율 및 달성도 ({ratioCarbs}:{ratioProtein}:{ratioFat})</span>
+                                    <span>{summary.isSingleDay ? '탄단지 비율 및 달성도' : '평균 탄단지 비율 및 달성도'} ({summary.periodName})</span>
                                 </div>
                                 {!isEditingMacros && (
                                     <Settings 
@@ -1300,7 +1532,11 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                             ) : (
                                 <>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '-0.5rem', marginBottom: '1rem' }}>
-                                        <span>실제 {Math.round(carbPercent/10)} : {Math.round(proteinPercent/10)} : {Math.round(fatPercent/10)}</span>
+                                        <span>
+                                            {summary.loggedDays > 0
+                                                ? `실제 ${Math.round(carbPercent / 10)} : ${Math.round(proteinPercent / 10)} : ${Math.round(fatPercent / 10)}`
+                                                : '실제 – : – : –'}
+                                        </span>
                                         <span style={{ color: 'var(--text-tertiary)' }}>(목표 비율 {ratioCarbs} : {ratioProtein} : {ratioFat})</span>
                                     </div>
 
@@ -1452,6 +1688,24 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                         viewType={viewType}
                         manualBmr={manualBmr}
                         onChangeManualBmr={setManualBmr}
+                        selectedPeriodKey={effectiveSelectedKey}
+                        isCustomSelection={isCustomSelection}
+                        onSelectPeriod={handleSelectPeriod}
+                        onResetPeriod={() => setSelectedPeriodKey(null)}
+                        onScrollToTop={() => topSummaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                        selectedNutrition={{
+                            periodName: summary.periodName,
+                            periodLabel: summary.periodLabel,
+                            avgCal: summary.avgCal,
+                            avgCarbs: summary.avgCarbs,
+                            avgProtein: summary.avgProtein,
+                            avgFat: summary.avgFat,
+                            carbsRatio,
+                            proteinRatio,
+                            fatRatio,
+                            loggedDays: summary.loggedDays,
+                            isSingleDay: summary.isSingleDay,
+                        }}
                     />
 
                     {/* Chart Card */}
@@ -1466,7 +1720,7 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                                     {viewType === 'day' ? `최근 ${DAY_RANGE}일간의 일별 섭취량` :
                                      viewType === 'week' ? '최근 8주간의 주차별 일평균 섭취량' :
                                      viewType === 'month' ? '최근 6개월간의 월별 일평균 섭취량' :
-                                     '연도별 일평균 섭취량'}
+                                     '연도별 일평균 섭취량'} · 막대를 클릭해 기간 선택
                                 </p>
                             </div>
                             
@@ -1560,7 +1814,13 @@ const StatsDashboard = ({ meals, dailyEnergy = [] }) => {
                                 )}
                             </div>
                         </div>
-                        <BarChart data={chartData} visibleMetrics={visibleMetrics} targetCalorie={targetCalorie} />
+                        <BarChart
+                            data={chartData}
+                            visibleMetrics={visibleMetrics}
+                            targetCalorie={targetCalorie}
+                            selectedKey={effectiveSelectedKey}
+                            onSelectPeriod={handleSelectPeriod}
+                        />
                     </div>
 
                     {/* Insights Card */}

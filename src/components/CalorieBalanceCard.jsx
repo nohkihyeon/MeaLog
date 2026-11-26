@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Scale, Settings, TrendingDown, Flame, CalendarDays } from 'lucide-react';
+import { Scale, Settings, TrendingDown, Flame, CalendarDays, RotateCcw, ArrowUp } from 'lucide-react';
 import { formatWeight } from '../utils/nutrition';
 import WeightOverlay from './WeightOverlay';
 import { WEIGHT_LINE_COLOR } from '../utils/weightChart';
@@ -41,8 +41,44 @@ const DAY_RANGE = 30;
 
 const fmtSigned = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(Math.round(v)).toLocaleString()}`;
 
+const dateKey = (d) => {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+};
+
+// ---- 기간 집계 헬퍼 (useMemo 의존성 안정화를 위해 컴포넌트 외부에 정의) ----
+const aggregateBalanceRange = (balanceByDate, weightMap, dates) => {
+    let intake = 0, burn = 0, basal = 0, active = 0, validDays = 0;
+    let weightSum = 0, weightDays = 0;
+    dates.forEach(key => {
+        const w = weightMap[key];
+        if (w != null) {
+            weightSum += w;
+            weightDays += 1;
+        }
+        const b = balanceByDate[key];
+        if (!b) return;
+        intake += b.intake;
+        burn += b.burn;
+        basal += b.basal;
+        active += b.active;
+        validDays += 1;
+    });
+    return {
+        validDays,
+        avgIntake: validDays ? intake / validDays : 0,
+        avgBurn: validDays ? burn / validDays : 0,
+        avgBasal: validDays ? basal / validDays : 0,
+        avgActive: validDays ? active / validDays : 0,
+        avgBalance: validDays ? (intake - burn) / validDays : 0,
+        avgWeight: weightDays ? weightSum / weightDays : null,
+    };
+};
+
 // ---- 다이버징 바 차트 ----
-const BalanceChart = ({ data, targetBalance, mode, showWeight = false }) => {
+const BalanceChart = ({ data, targetBalance, mode, showWeight = false, selectedKey = null, onSelectPeriod }) => {
     const [hoveredIndex, setHoveredIndex] = useState(null);
 
     if (!data || data.length === 0) return null;
@@ -113,10 +149,30 @@ const BalanceChart = ({ data, targetBalance, mode, showWeight = false }) => {
                 />
                 <text x={padLeft - 8} y={zeroY + 3} fill="var(--text-tertiary)" fontSize="8" textAnchor="end">0</text>
 
+                {/* 선택된 기간 배경 하이라이트 */}
+                {selectedKey != null && data.map((item, idx) => {
+                    if (item.key !== selectedKey) return null;
+                    return (
+                        <rect
+                            key={`sel-${idx}`}
+                            x={padLeft + idx * colWidth + 2}
+                            y={padTop}
+                            width={Math.max(colWidth - 4, 2)}
+                            height={plotH}
+                            rx="6"
+                            fill="rgba(255, 255, 255, 0.06)"
+                            stroke="rgba(255, 255, 255, 0.22)"
+                            strokeWidth="1"
+                        />
+                    );
+                })}
+
                 {/* 다이버징 바 */}
                 {data.map((item, idx) => {
                     const cx = padLeft + idx * colWidth + colWidth / 2;
                     const isHovered = hoveredIndex === idx;
+                    const isSelected = selectedKey != null && item.key === selectedKey;
+                    const isDimmed = selectedKey != null && !isSelected && !isHovered;
                     const barWidth = Math.min(colWidth * 0.45, 20);
                     const hasData = item.validDays > 0;
 
@@ -134,7 +190,7 @@ const BalanceChart = ({ data, targetBalance, mode, showWeight = false }) => {
                                 height={barH}
                                 rx="3"
                                 fill={color}
-                                opacity={isHovered ? 1 : 0.75}
+                                opacity={isHovered || isSelected ? 1 : isDimmed ? 0.4 : 0.75}
                                 style={{ transition: 'opacity 0.2s ease' }}
                             />
                         );
@@ -142,37 +198,39 @@ const BalanceChart = ({ data, targetBalance, mode, showWeight = false }) => {
                         bar = (
                             <line
                                 x1={cx - barWidth / 2} y1={zeroY} x2={cx + barWidth / 2} y2={zeroY}
-                                stroke="var(--text-tertiary)" strokeWidth="2" opacity="0.4"
+                                stroke="var(--text-tertiary)" strokeWidth="2" opacity={isHovered || isSelected ? 0.75 : isDimmed ? 0.25 : 0.4}
                             />
                         );
                     }
 
-                    const hasHoverable = hasData || (hasWeightLine && item.avgWeight != null);
-
                     return (
                         <g key={idx}>
                             {bar}
-                            {/* 호버 트리거 */}
+                            {/* 호버 & 클릭 트리거 (소모 데이터 없는 주/일도 식단 연동을 위해 클릭 허용) */}
                             <rect
                                 x={padLeft + idx * colWidth}
                                 y={padTop}
                                 width={colWidth}
                                 height={plotH}
                                 fill="transparent"
-                                style={{ cursor: hasHoverable ? 'pointer' : 'default' }}
-                                onMouseEnter={() => hasHoverable && setHoveredIndex(idx)}
+                                style={{ cursor: 'pointer' }}
+                                onMouseEnter={() => setHoveredIndex(idx)}
                                 onMouseLeave={() => setHoveredIndex(null)}
+                                onClick={() => onSelectPeriod?.(item.key)}
                             />
                             {(data.length - 1 - idx) % labelStep === 0 && <text
                                 x={cx}
                                 y={height - 8}
-                                fill={isHovered ? 'var(--text-primary)' : 'var(--text-secondary)'}
+                                fill={isSelected || isHovered ? 'var(--text-primary)' : 'var(--text-secondary)'}
                                 fontSize="9"
-                                fontWeight={isHovered ? '600' : '400'}
+                                fontWeight={isSelected ? '700' : isHovered ? '600' : '400'}
                                 textAnchor="middle"
                             >
                                 {item.label}
                             </text>}
+                            {isSelected && (
+                                <circle cx={cx} cy={height - 2} r="1.8" fill="var(--text-primary)" />
+                            )}
                         </g>
                     );
                 })}
@@ -254,6 +312,11 @@ const BalanceChart = ({ data, targetBalance, mode, showWeight = false }) => {
                             밸런스 계산일: {hovered.validDays}일
                         </span>
                     )}
+                    {onSelectPeriod && (
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: '0.62rem', alignSelf: 'center', marginTop: '1px' }}>
+                            {selectedKey === hovered.key ? '선택된 기간' : '클릭하여 상세 보기'}
+                        </span>
+                    )}
                 </div>
             )}
         </div>
@@ -282,7 +345,19 @@ const MetricTile = ({ label, value, unit, sub, color, bg }) => (
     </div>
 );
 
-const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onChangeManualBmr }) => {
+const CalorieBalanceCard = ({
+    dailyData,
+    dailyEnergy,
+    viewType,
+    manualBmr,
+    onChangeManualBmr,
+    selectedPeriodKey = null,
+    isCustomSelection = false,
+    onSelectPeriod,
+    onResetPeriod,
+    onScrollToTop,
+    selectedNutrition = null,
+}) => {
     // ---- 설정 (localStorage 유지, manualBmr는 부모와 공유) ----
     const [goalMode, setGoalMode] = useState(() => {
         const saved = localStorage.getItem('mealog_goal_mode');
@@ -361,43 +436,8 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
     }, [dailyEnergy]);
     const hasWeightData = Object.keys(weightMap).length > 0;
 
-    const dateKey = (d) => {
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        return `${yyyy}-${mm}-${dd}`;
-    };
-
     // ---- viewType별 차트 데이터 (기존 리포트와 동일한 기간 구조) ----
     const report = useMemo(() => {
-        const aggregateRange = (dates) => {
-            let intake = 0, burn = 0, basal = 0, active = 0, validDays = 0;
-            let weightSum = 0, weightDays = 0;
-            dates.forEach(key => {
-                const w = weightMap[key];
-                if (w != null) {
-                    weightSum += w;
-                    weightDays += 1;
-                }
-                const b = balanceByDate[key];
-                if (!b) return;
-                intake += b.intake;
-                burn += b.burn;
-                basal += b.basal;
-                active += b.active;
-                validDays += 1;
-            });
-            return {
-                validDays,
-                avgIntake: validDays ? intake / validDays : 0,
-                avgBurn: validDays ? burn / validDays : 0,
-                avgBasal: validDays ? basal / validDays : 0,
-                avgActive: validDays ? active / validDays : 0,
-                avgBalance: validDays ? (intake - burn) / validDays : 0,
-                avgWeight: weightDays ? weightSum / weightDays : null,
-            };
-        };
-
         const today = new Date();
         const chartData = [];
 
@@ -413,15 +453,17 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
                 allDates.push(key);
 
                 chartData.push({
+                    key,
                     label: i === 0 ? '오늘' : `${d.getMonth() + 1}/${d.getDate()}`,
                     periodLabel: `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()} (${dayNames[d.getDay()]})`,
+                    displayName: i === 0 ? '오늘' : `${d.getMonth() + 1}/${d.getDate()} (${dayNames[d.getDay()]})`,
                     totalDays: 1,
-                    ...aggregateRange([key]),
+                    ...aggregateBalanceRange(balanceByDate, weightMap, [key]),
                 });
             }
 
             // 일간 요약은 DAY_RANGE일 전체 평균
-            const summary = { ...aggregateRange(allDates), totalDays: DAY_RANGE };
+            const summary = { ...aggregateBalanceRange(balanceByDate, weightMap, allDates), totalDays: DAY_RANGE };
             return { chartData, summary, periodName: `최근 ${DAY_RANGE}일` };
         }
 
@@ -448,10 +490,12 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
                 }
 
                 chartData.push({
+                    key: dateKey(monday),
                     label: i === 0 ? '이번 주' : `${monday.getMonth() + 1}/${monday.getDate()}`,
                     periodLabel: `${monday.getFullYear()}.${monday.getMonth() + 1}.${monday.getDate()} ~ ${sunday.getMonth() + 1}.${sunday.getDate()}`,
+                    displayName: i === 0 ? '이번 주' : i === 1 ? '지난 주' : `${monday.getMonth() + 1}/${monday.getDate()} ~ ${sunday.getMonth() + 1}/${sunday.getDate()}`,
                     totalDays: 7,
-                    ...aggregateRange(dates),
+                    ...aggregateBalanceRange(balanceByDate, weightMap, dates),
                 });
             }
         } else if (viewType === 'month') {
@@ -467,25 +511,35 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
                 }
 
                 chartData.push({
+                    key: `${year}-${String(month + 1).padStart(2, '0')}`,
                     label: `${month + 1}월`,
                     periodLabel: `${year}년 ${month + 1}월`,
+                    displayName: i === 0 ? '이번 달' : (year === today.getFullYear() ? `${month + 1}월` : `${year}년 ${month + 1}월`),
                     totalDays: numDays,
-                    ...aggregateRange(dates),
+                    ...aggregateBalanceRange(balanceByDate, weightMap, dates),
                 });
             }
         } else {
             const yearsMap = {};
+            Object.keys(dailyData).forEach(key => { yearsMap[key.slice(0, 4)] = true; });
             Object.keys(balanceByDate).forEach(key => { yearsMap[key.slice(0, 4)] = true; });
             let uniqueYears = Object.keys(yearsMap).sort();
             if (uniqueYears.length === 0) uniqueYears = [String(today.getFullYear())];
+            if (uniqueYears.length === 1) {
+                const y = Number(uniqueYears[0]);
+                uniqueYears.unshift(String(y - 1));
+                uniqueYears.unshift(String(y - 2));
+            }
 
             uniqueYears.forEach(yStr => {
                 const dates = Object.keys(balanceByDate).filter(key => key.startsWith(yStr));
                 chartData.push({
+                    key: yStr,
                     label: `${yStr}년`,
                     periodLabel: `${yStr}년`,
+                    displayName: yStr === String(today.getFullYear()) ? '올해' : `${yStr}년`,
                     totalDays: 365,
-                    ...aggregateRange(dates),
+                    ...aggregateBalanceRange(balanceByDate, weightMap, dates),
                 });
             });
         }
@@ -495,7 +549,7 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
         const periodName = viewType === 'week' ? '이번 주' : viewType === 'month' ? '이번 달' : '올해';
 
         return { chartData, summary, periodName };
-    }, [balanceByDate, weightMap, viewType]);
+    }, [balanceByDate, weightMap, dailyData, viewType]);
 
     // ---- 인사이트 ----
     const insights = useMemo(() => {
@@ -582,7 +636,12 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
         return list;
     }, [balanceByDate, dailyEnergy, goalMode, targetBalance]);
 
-    const { summary, chartData, periodName } = report;
+    const { chartData } = report;
+    const selectedBucket = selectedPeriodKey ? chartData.find(b => b.key === selectedPeriodKey) : null;
+    const summary = selectedBucket || report.summary;
+    const periodName = selectedBucket ? selectedBucket.displayName : report.periodName;
+    const isSingleDay = viewType === 'day' && Boolean(selectedBucket);
+
     const summaryVerdict = judgeBalance(summary.avgBalance || 0, goalMode);
     const summaryColor = judgeColor(summaryVerdict);
 
@@ -604,11 +663,40 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
         <div className="apple-card" style={{ marginBottom: '2rem' }}>
             {/* 헤더 */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                <div className="apple-card-title" style={{ margin: 0 }}>
-                    <Scale size={18} color={COLOR_GOOD} />
-                    <span>칼로리 밸런스 ({periodName})</span>
+                <div>
+                    <div className="apple-card-title" style={{ margin: 0 }}>
+                        <Scale size={18} color={COLOR_GOOD} />
+                        <span>칼로리 밸런스 ({periodName})</span>
+                    </div>
+                    {hasEnergyData && validDateCount > 0 && (
+                        <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
+                            막대를 클릭하면 해당 기간의 일평균 칼로리·탄단지가 함께 연동돼요
+                        </p>
+                    )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {isCustomSelection && onResetPeriod && (
+                        <button
+                            type="button"
+                            onClick={onResetPeriod}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '0.7rem',
+                                fontWeight: 600,
+                                padding: '3px 9px',
+                                borderRadius: '20px',
+                                backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                                border: '1px solid var(--border-color)',
+                                color: 'var(--text-secondary)',
+                                cursor: 'pointer',
+                            }}
+                        >
+                            <RotateCcw size={11} />
+                            <span>{viewType === 'day' ? '최근 30일로' : '최신으로'}</span>
+                        </button>
+                    )}
                     {hasWeightData && (
                         <button
                             onClick={() => setShowWeight(v => !v)}
@@ -752,19 +840,21 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
                     {/* 요약 타일 */}
                     <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '1.25rem' }}>
                         <MetricTile
-                            label="일평균 섭취"
+                            label={isSingleDay ? '섭취' : '일평균 섭취'}
                             value={Math.round(summary.avgIntake || 0).toLocaleString()}
                             unit="kcal"
-                            sub={`밸런스 계산일 ${summary.validDays}/${summary.totalDays || 0}일`}
+                            sub={isSingleDay
+                                ? (summary.validDays ? '밸런스 계산됨' : '식단·소모 기록 필요')
+                                : `밸런스 계산일 ${summary.validDays}/${summary.totalDays || 0}일`}
                         />
                         <MetricTile
-                            label="일평균 소모"
+                            label={isSingleDay ? '소모' : '일평균 소모'}
                             value={Math.round(summary.avgBurn || 0).toLocaleString()}
                             unit="kcal"
                             sub={`기초 ${Math.round(summary.avgBasal || 0).toLocaleString()} + 활동 ${Math.round(summary.avgActive || 0).toLocaleString()}`}
                         />
                         <MetricTile
-                            label={`평균 밸런스 (${verdictWord})`}
+                            label={isSingleDay ? `밸런스 (${verdictWord})` : `평균 밸런스 (${verdictWord})`}
                             value={fmtSigned(summary.avgBalance || 0)}
                             unit="kcal"
                             sub={achievement}
@@ -779,7 +869,102 @@ const CalorieBalanceCard = ({ dailyData, dailyEnergy, viewType, manualBmr, onCha
                         targetBalance={targetBalance}
                         mode={goalMode}
                         showWeight={showWeight && hasWeightData}
+                        selectedKey={selectedPeriodKey}
+                        onSelectPeriod={onSelectPeriod}
                     />
+
+                    {/* 선택한 기간의 식단·탄단지 연동 요약 */}
+                    {selectedNutrition && (viewType !== 'day' || Boolean(selectedPeriodKey)) && (
+                        <div style={{
+                            backgroundColor: 'var(--bg-primary)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '12px',
+                            padding: '0.65rem 0.9rem',
+                            marginTop: '0.85rem',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: '0.5rem 1rem',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem 0.75rem', fontSize: '0.8rem' }}>
+                                <span style={{
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    padding: '2px 8px',
+                                    borderRadius: '999px',
+                                    backgroundColor: 'rgba(235, 87, 87, 0.14)',
+                                    color: 'var(--accent-primary)',
+                                }}>
+                                    {selectedNutrition.periodName}
+                                </span>
+                                <span style={{ color: 'var(--text-secondary)' }}>
+                                    {selectedNutrition.isSingleDay ? '섭취' : '일평균'}{' '}
+                                    <strong style={{ color: 'var(--text-primary)' }}>
+                                        {Math.round(selectedNutrition.avgCal || 0).toLocaleString()} kcal
+                                    </strong>
+                                </span>
+                                {selectedNutrition.loggedDays > 0 ? (
+                                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                                        <span style={{
+                                            fontSize: '0.72rem',
+                                            fontWeight: 600,
+                                            padding: '2px 7px',
+                                            borderRadius: '6px',
+                                            backgroundColor: 'rgba(242, 201, 76, 0.12)',
+                                            color: 'var(--accent-tertiary)',
+                                        }}>
+                                            탄 {Math.round(selectedNutrition.avgCarbs)}g ({Math.round(selectedNutrition.carbsRatio)}%)
+                                        </span>
+                                        <span style={{
+                                            fontSize: '0.72rem',
+                                            fontWeight: 600,
+                                            padding: '2px 7px',
+                                            borderRadius: '6px',
+                                            backgroundColor: 'rgba(39, 174, 96, 0.12)',
+                                            color: 'var(--accent-quaternary)',
+                                        }}>
+                                            단 {Math.round(selectedNutrition.avgProtein)}g ({Math.round(selectedNutrition.proteinRatio)}%)
+                                        </span>
+                                        <span style={{
+                                            fontSize: '0.72rem',
+                                            fontWeight: 600,
+                                            padding: '2px 7px',
+                                            borderRadius: '6px',
+                                            backgroundColor: 'rgba(45, 156, 219, 0.12)',
+                                            color: 'var(--accent-secondary)',
+                                        }}>
+                                            지 {Math.round(selectedNutrition.avgFat)}g ({Math.round(selectedNutrition.fatRatio)}%)
+                                        </span>
+                                    </div>
+                                ) : (
+                                    <span style={{ fontSize: '0.76rem', color: 'var(--text-tertiary)' }}>식단 기록 없음</span>
+                                )}
+                            </div>
+                            {onScrollToTop && (
+                                <button
+                                    type="button"
+                                    onClick={onScrollToTop}
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        fontSize: '0.72rem',
+                                        fontWeight: 600,
+                                        color: 'var(--text-secondary)',
+                                        padding: '3px 8px',
+                                        borderRadius: '8px',
+                                        border: '1px solid var(--border-color)',
+                                        backgroundColor: 'var(--bg-secondary)',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    <ArrowUp size={12} />
+                                    <span>탄단지 상세</span>
+                                </button>
+                            )}
+                        </div>
+                    )}
 
                     {/* 밸런스 인사이트 */}
                     {insights.length > 0 && (

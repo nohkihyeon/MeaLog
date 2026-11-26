@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useLayoutEffect } from 'react';
-import { Activity, Trophy, TrendingUp, TrendingDown, Sigma, Utensils, CalendarDays, Scale } from 'lucide-react';
+import { Activity, Trophy, TrendingUp, TrendingDown, Sigma, Utensils, CalendarDays, Scale, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
 import { getEffectiveCalories, formatWeight } from '../utils/nutrition';
 import WeightOverlay from './WeightOverlay';
 import { WEIGHT_LINE_COLOR, computeWeightScale, buildWeightSeries } from '../utils/weightChart';
@@ -133,7 +133,7 @@ const statsBetween = (energyMap, intakeMap, startKey, endKey, totalDays) => {
 };
 
 // ---- 스택/단일 바 차트 (버킷 수가 많아도 동작하도록 라벨은 듬성듬성) ----
-const EnergyChart = ({ buckets, metric, showMA, showIntake, showWeight = false }) => {
+const EnergyChart = ({ buckets, metric, showMA, showIntake, showWeight = false, selectedKey = null, onSelectBucket }) => {
     const [hoveredIndex, setHoveredIndex] = useState(null);
 
     if (!buckets || buckets.length === 0) return null;
@@ -229,12 +229,17 @@ const EnergyChart = ({ buckets, metric, showMA, showIntake, showWeight = false }
                     const x = padLeft + idx * colWidth + (colWidth - barWidth) / 2;
                     const cx = padLeft + idx * colWidth + colWidth / 2;
                     const isHovered = hoveredIndex === idx;
+                    const isSelected = selectedKey != null && b.key === selectedKey;
+                    const isDimmed = selectedKey != null && !isSelected && !isHovered;
                     const hasData = b.recorded > 0;
                     // 마지막 라벨과 너무 가까운 눈금 라벨은 겹치므로 건너뛴다
                     const showLabel = (idx % labelStep === 0 && n - 1 - idx >= labelStep / 2) || idx === n - 1;
+                    const selPad = colWidth > 6 ? 1.5 : 0;
 
                     let bars = null;
                     if (hasData) {
+                        const stackOpacity = isHovered || isSelected ? 1 : isDimmed ? 0.35 : 0.85;
+                        const singleOpacity = isHovered || isSelected ? 1 : isDimmed ? 0.35 : 0.8;
                         if (metric === 'total') {
                             const basalH = (b.avgBasal / maxVal) * plotH;
                             const activeH = (b.avgActive / maxVal) * plotH;
@@ -245,14 +250,14 @@ const EnergyChart = ({ buckets, metric, showMA, showIntake, showWeight = false }
                                         x={x} y={padTop + plotH - basalH}
                                         width={barWidth} height={Math.max(basalH, 1)}
                                         fill={BASAL_COLOR}
-                                        opacity={isHovered ? 1 : 0.85}
+                                        opacity={stackOpacity}
                                     />
                                     <rect
                                         x={x} y={yActive}
                                         width={barWidth} height={Math.max(activeH, 1)}
                                         rx={barWidth > 4 ? 2 : 0}
                                         fill={ACTIVE_COLOR}
-                                        opacity={isHovered ? 1 : 0.85}
+                                        opacity={stackOpacity}
                                     />
                                 </>
                             );
@@ -265,16 +270,26 @@ const EnergyChart = ({ buckets, metric, showMA, showIntake, showWeight = false }
                                     width={barWidth} height={Math.max(h, 1)}
                                     rx={barWidth > 4 ? 2 : 0}
                                     fill={metric === 'active' ? ACTIVE_COLOR : BASAL_SOLID}
-                                    opacity={isHovered ? 1 : 0.8}
+                                    opacity={singleOpacity}
                                 />
                             );
                         }
                     }
 
-                    const hasHoverable = hasData || (hasWeightLine && b.avgWeight != null);
-
                     return (
                         <g key={idx}>
+                            {isSelected && (
+                                <rect
+                                    x={padLeft + idx * colWidth + selPad}
+                                    y={padTop}
+                                    width={Math.max(colWidth - selPad * 2, 2)}
+                                    height={plotH}
+                                    rx={colWidth > 8 ? 5 : 2}
+                                    fill="rgba(242, 153, 74, 0.1)"
+                                    stroke="rgba(242, 153, 74, 0.35)"
+                                    strokeWidth="1"
+                                />
+                            )}
                             {bars}
                             <rect
                                 x={padLeft + idx * colWidth}
@@ -282,20 +297,25 @@ const EnergyChart = ({ buckets, metric, showMA, showIntake, showWeight = false }
                                 width={colWidth}
                                 height={plotH}
                                 fill="transparent"
-                                style={{ cursor: hasHoverable ? 'pointer' : 'default' }}
-                                onMouseEnter={() => hasHoverable && setHoveredIndex(idx)}
+                                style={{ cursor: 'pointer' }}
+                                onMouseEnter={() => setHoveredIndex(idx)}
                                 onMouseLeave={() => setHoveredIndex(null)}
+                                onClick={() => onSelectBucket?.(b.key)}
                             />
                             {showLabel && (
                                 <text
                                     x={cx}
                                     y={height - 8}
-                                    fill={isHovered ? 'var(--text-primary)' : 'var(--text-secondary)'}
+                                    fill={isSelected || isHovered ? 'var(--text-primary)' : 'var(--text-secondary)'}
                                     fontSize="8.5"
+                                    fontWeight={isSelected ? '700' : isHovered ? '600' : '400'}
                                     textAnchor="middle"
                                 >
                                     {b.label}
                                 </text>
+                            )}
+                            {isSelected && (
+                                <circle cx={cx} cy={height - 2} r="1.8" fill={ACTIVE_COLOR} />
                             )}
                         </g>
                     );
@@ -456,13 +476,18 @@ const EnergyChart = ({ buckets, metric, showMA, showIntake, showWeight = false }
                             기록일: {hovered.recorded}/{hovered.totalDays}일 (일평균)
                         </span>
                     )}
+                    {onSelectBucket && (
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: '0.62rem', alignSelf: 'center', marginTop: '1px' }}>
+                            {selectedKey === hovered.key ? '선택된 기간 · 다시 클릭해 해제' : '클릭하여 상세 보기'}
+                        </span>
+                    )}
                 </div>
             )}
         </div>
     );
 };
 
-const Tile = ({ label, value, unit, sub, color, delta }) => (
+const Tile = ({ label, value, unit, sub, color, delta, deltaLabel = '직전 대비' }) => (
     <div style={{
         flex: 1,
         minWidth: '130px',
@@ -478,7 +503,7 @@ const Tile = ({ label, value, unit, sub, color, delta }) => (
         {sub && <div style={{ fontSize: '0.68rem', marginTop: '2px', color: 'var(--text-tertiary)' }}>{sub}</div>}
         {delta && (
             <div style={{ fontSize: '0.68rem', marginTop: '2px', color: 'var(--text-tertiary)' }}>
-                직전 대비{' '}
+                {deltaLabel}{' '}
                 <span style={{ fontWeight: 600, color: delta.tone }}>
                     {delta.diff > 0 ? '▲' : delta.diff < 0 ? '▼' : '–'} {Math.abs(Math.round(delta.diff)).toLocaleString()}
                 </span>
@@ -514,10 +539,12 @@ const balanceColor = (value, scale) => {
         : `rgba(235, 87, 87, ${HEATMAP_ALPHA[level]})`;
 };
 
-const ActivityHeatmap = ({ energyMap, intakeMap, weightMap = {}, totalDays }) => {
+const ActivityHeatmap = ({ energyMap, intakeMap, weightMap = {}, totalDays, highlightRange = null }) => {
     const [mode, setMode] = useState('active');
-    const [selected, setSelected] = useState(null);
+    const [hovered, setHovered] = useState(null);
+    const [pinned, setPinned] = useState(null);
     const scrollRef = useRef(null);
+    const displayCell = hovered || pinned;
 
     const heat = useMemo(() => {
         const today = new Date();
@@ -601,6 +628,13 @@ const ActivityHeatmap = ({ energyMap, intakeMap, weightMap = {}, totalDays }) =>
         : (r.balanceDays ? r.balance / r.balanceDays : null));
     const peakAvg = Math.max(...rowAvgs.filter(v => v != null));
 
+    const hasHighlight = useMemo(() => {
+        if (!highlightRange) return false;
+        return heat.weeks.some(wk =>
+            wk.cells.some(c => c && c.key >= highlightRange.startKey && c.key <= highlightRange.endKey)
+        );
+    }, [heat.weeks, highlightRange]);
+
     const legend = viewMode === 'active'
         ? HEATMAP_ALPHA.map(a => `rgba(242, 153, 74, ${a})`)
         : ['rgba(39, 174, 96, 1)', 'rgba(39, 174, 96, 0.55)', 'rgba(235, 87, 87, 0.55)', 'rgba(235, 87, 87, 1)'];
@@ -642,7 +676,7 @@ const ActivityHeatmap = ({ energyMap, intakeMap, weightMap = {}, totalDays }) =>
             <div
                 ref={scrollRef}
                 style={{ overflowX: 'auto', marginTop: '1.25rem', paddingBottom: '4px' }}
-                onMouseLeave={() => setSelected(null)}
+                onMouseLeave={() => setHovered(null)}
             >
                 <div style={{
                     display: 'grid',
@@ -671,19 +705,25 @@ const ActivityHeatmap = ({ energyMap, intakeMap, weightMap = {}, totalDays }) =>
                                 <span>{name}</span>
                                 {heat.weeks.map((wk, w) => {
                                     const cell = wk.cells[r];
-                                    const isSelected = cell && selected?.key === cell.key;
+                                    const isActive = cell && displayCell?.key === cell.key;
+                                    const inHighlight = Boolean(
+                                        hasHighlight && cell && cell.key >= highlightRange.startKey && cell.key <= highlightRange.endKey
+                                    );
                                     return (
                                         <div
                                             key={w}
-                                            onMouseEnter={() => cell && setSelected(cell)}
-                                            onClick={() => cell && setSelected(cell)}
+                                            onMouseEnter={() => cell && setHovered(cell)}
+                                            onClick={() => cell && setPinned(prev => (prev?.key === cell.key ? null : cell))}
                                             style={{
                                                 aspectRatio: '1',
                                                 borderRadius: '3px',
                                                 backgroundColor: cell ? colorFor(cell) : 'transparent',
-                                                outline: isSelected ? '1px solid var(--text-primary)' : 'none',
+                                                opacity: hasHighlight && cell && !inHighlight ? 0.28 : 1,
+                                                boxShadow: inHighlight ? 'inset 0 0 0 1px rgba(255, 255, 255, 0.28)' : 'none',
+                                                outline: isActive ? '1px solid var(--text-primary)' : 'none',
                                                 outlineOffset: '1px',
                                                 cursor: cell ? 'pointer' : 'default',
+                                                transition: 'opacity 0.15s ease',
                                             }}
                                         />
                                     );
@@ -710,29 +750,49 @@ const ActivityHeatmap = ({ energyMap, intakeMap, weightMap = {}, totalDays }) =>
                 gap: '0.5rem 1rem', marginTop: '0.75rem', minHeight: '1.2rem', fontSize: '0.75rem', color: 'var(--text-secondary)',
             }}>
                 <span>
-                    {selected ? (
-                        <>
-                            <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
-                                {selected.date.getMonth() + 1}/{selected.date.getDate()} ({DAY_NAMES[selected.date.getDay()]})
-                            </strong>
-                            {selected.energy
-                                ? ` · 활동 ${Math.round(selected.energy.active).toLocaleString()} · 총 소모 ${Math.round(selected.energy.total).toLocaleString()}`
-                                : ' · 소모 기록 없음'}
-                            {selected.intake > 0 && ` · 섭취 ${Math.round(selected.intake).toLocaleString()}`}
-                            {selected.balance != null && (
-                                <span style={{ color: selected.balance > 0 ? '#EB5757' : '#27AE60', fontWeight: 600 }}>
-                                    {` · 수지 ${signed(selected.balance)}`}
-                                </span>
+                    {displayCell ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 6px' }}>
+                            <span>
+                                <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                                    {displayCell.date.getMonth() + 1}/{displayCell.date.getDate()} ({DAY_NAMES[displayCell.date.getDay()]})
+                                </strong>
+                                {displayCell.energy
+                                    ? ` · 활동 ${Math.round(displayCell.energy.active).toLocaleString()} · 총 소모 ${Math.round(displayCell.energy.total).toLocaleString()}`
+                                    : ' · 소모 기록 없음'}
+                                {displayCell.intake > 0 && ` · 섭취 ${Math.round(displayCell.intake).toLocaleString()}`}
+                                {displayCell.balance != null && (
+                                    <span style={{ color: displayCell.balance > 0 ? '#EB5757' : '#27AE60', fontWeight: 600 }}>
+                                        {` · 수지 ${signed(displayCell.balance)}`}
+                                    </span>
+                                )}
+                                {(displayCell.energy || displayCell.intake > 0) && ' kcal'}
+                                {weightMap[displayCell.key] != null && (
+                                    <span style={{ color: WEIGHT_COLOR, fontWeight: 600 }}>
+                                        {` · 공복 ${formatWeight(weightMap[displayCell.key])} kg`}
+                                    </span>
+                                )}
+                            </span>
+                            {pinned && !hovered && (
+                                <button
+                                    type="button"
+                                    onClick={() => setPinned(null)}
+                                    style={{
+                                        padding: '1px 7px',
+                                        borderRadius: '999px',
+                                        fontSize: '0.68rem',
+                                        fontWeight: 600,
+                                        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                                        border: '1px solid var(--border-color)',
+                                        color: 'var(--text-secondary)',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    고정 해제
+                                </button>
                             )}
-                            {(selected.energy || selected.intake > 0) && ' kcal'}
-                            {weightMap[selected.key] != null && (
-                                <span style={{ color: WEIGHT_COLOR, fontWeight: 600 }}>
-                                    {` · 공복 ${formatWeight(weightMap[selected.key])} kg`}
-                                </span>
-                            )}
-                        </>
+                        </span>
                     ) : (
-                        <span style={{ color: 'var(--text-tertiary)' }}>칸을 누르면 그날 기록이 보여요</span>
+                        <span style={{ color: 'var(--text-tertiary)' }}>칸을 누르면 그날 기록이 고정돼요</span>
                     )}
                 </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.65rem', color: 'var(--text-tertiary)' }}>
@@ -1007,6 +1067,7 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
     const [metric, setMetric] = useState('total');
     const [showIntake, setShowIntake] = useState(true);
     const [showWeight, setShowWeight] = useState(true);
+    const [selectedBucketKey, setSelectedBucketKey] = useState(null);
 
     // date → 그날 섭취 칼로리 합 (직접 입력 없으면 탄단지 4/4/9 환산값 사용)
     const intakeMap = useMemo(() => {
@@ -1072,6 +1133,7 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
 
     const handleUnitChange = (u) => {
         setUnit(u);
+        setSelectedBucketKey(null);
         const opts = RANGE_OPTIONS[u];
         const finite = opts.filter((o, idx) => idx === 0 || !Number.isFinite(o.days) || o.days <= spanDays * 1.15);
         // 일 단위는 기본 화면과 같은 30일, 나머지는 두 번째 옵션
@@ -1128,8 +1190,12 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
                 d.setDate(today.getDate() - i);
                 const key = dateKey(d);
                 result.push({
+                    key,
+                    startKey: key,
+                    endKey: key,
                     label: `${d.getMonth() + 1}/${d.getDate()}`,
                     periodLabel: `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()} (${DAY_NAMES[d.getDay()]})`,
+                    displayName: i === 0 ? '오늘' : `${d.getMonth() + 1}/${d.getDate()} (${DAY_NAMES[d.getDay()]})`,
                     totalDays: 1,
                     ...aggregate([key]),
                 });
@@ -1149,9 +1215,15 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
                 }
                 const end = new Date(start);
                 end.setDate(start.getDate() + 6);
+                const startK = dateKey(start);
+                const endK = dateKey(end);
                 result.push({
+                    key: startK,
+                    startKey: startK,
+                    endKey: endK,
                     label: `${start.getMonth() + 1}/${start.getDate()}`,
                     periodLabel: `${start.getFullYear()}.${start.getMonth() + 1}.${start.getDate()} ~ ${end.getMonth() + 1}.${end.getDate()}`,
+                    displayName: i === 0 ? '이번 주' : i === 1 ? '지난 주' : `${start.getMonth() + 1}/${start.getDate()} ~ ${end.getMonth() + 1}/${end.getDate()}`,
                     totalDays: 7,
                     ...aggregate(dates),
                 });
@@ -1173,9 +1245,16 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
                 for (let k = 1; k <= numDays; k++) {
                     dates.push(`${year}-${String(month + 1).padStart(2, '0')}-${String(k).padStart(2, '0')}`);
                 }
+                const mmStr = String(month + 1).padStart(2, '0');
+                const startK = `${year}-${mmStr}-01`;
+                const endK = `${year}-${mmStr}-${String(numDays).padStart(2, '0')}`;
                 result.push({
+                    key: `${year}-${mmStr}`,
+                    startKey: startK,
+                    endKey: endK,
                     label: month === 0 ? `${String(year).slice(2)}.1` : `${month + 1}월`,
                     periodLabel: `${year}년 ${month + 1}월`,
+                    displayName: i === 0 ? '이번 달' : `${year}년 ${month + 1}월`,
                     totalDays: numDays,
                     ...aggregate(dates),
                 });
@@ -1190,8 +1269,12 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
                 const yStart = y === minYear ? fromKey(minDateStr) : new Date(y, 0, 1);
                 const yEnd = y === today.getFullYear() ? today : new Date(y, 11, 31);
                 result.push({
+                    key: String(y),
+                    startKey: dateKey(yStart),
+                    endKey: dateKey(yEnd),
                     label: `${y}년`,
                     periodLabel: `${y}년`,
+                    displayName: y === today.getFullYear() ? '올해' : `${y}년`,
                     totalDays: Math.round((yEnd - yStart) / 86400000) + 1,
                     ...aggregate(dates),
                 });
@@ -1262,17 +1345,55 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
         };
     }, [dailyEnergy, energyMap, intakeMap, range, minDateStr]);
 
+    const selectedIdx = selectedBucketKey ? buckets.findIndex(b => b.key === selectedBucketKey) : -1;
+    const selectedBucket = selectedIdx !== -1 ? buckets[selectedIdx] : null;
+
+    const handleSelectBucket = (key) => {
+        if (!key) return;
+        setSelectedBucketKey(prev => (prev === key ? null : key));
+    };
+
+    const handleStepBucket = (delta) => {
+        if (selectedIdx === -1) return;
+        const nextIdx = selectedIdx + delta;
+        if (nextIdx < 0 || nextIdx >= buckets.length) return;
+        setSelectedBucketKey(buckets[nextIdx].key);
+    };
+
+    const { selectedStats, selectedPrevStats } = useMemo(() => {
+        if (selectedIdx === -1 || !buckets[selectedIdx]) {
+            return { selectedStats: null, selectedPrevStats: null };
+        }
+        const cur = buckets[selectedIdx];
+        const prevB = selectedIdx > 0 ? buckets[selectedIdx - 1] : null;
+        return {
+            selectedStats: statsBetween(energyMap, intakeMap, cur.startKey, cur.endKey, cur.totalDays),
+            selectedPrevStats: prevB
+                ? statsBetween(energyMap, intakeMap, prevB.startKey, prevB.endKey, prevB.totalDays)
+                : null,
+        };
+    }, [buckets, selectedIdx, energyMap, intakeMap]);
+
     if (dailyEnergy.length === 0) return null;
 
-    const bestDate = rangeStats?.best ? fromKey(rangeStats.best.date) : null;
+    const displayStats = selectedBucket ? selectedStats : rangeStats;
+    const displayPrevStats = selectedBucket ? selectedPrevStats : prevStats;
+    const deltaLabel = selectedBucket
+        ? (unit === 'day' ? '전날 대비' : unit === 'week' ? '직전 주 대비' : unit === 'month' ? '직전 달 대비' : '전년 대비')
+        : '직전 대비';
+    const bestDate = displayStats?.best ? fromKey(displayStats.best.date) : null;
 
-    // 직전 구간 대비 변화. 두 구간 모두 기록이 3일 이상이고 기간의 25% 이상일 때만 비교한다
-    // (몇 날짜만으로 비교하면 숫자가 크게 튀어서 오히려 헷갈린다)
+    // 직전 구간 대비 변화. 전체 범위는 3일+25% 기준, 단일 일·단기 버킷 드릴다운은 최소 기준 완화
     const compare = (key, countKey, higherIsBetter) => {
-        if (!rangeStats || !prevStats) return null;
-        const enough = (s) => s[key] != null && s[countKey] >= Math.max(3, s.totalDays * 0.25);
-        if (!enough(rangeStats) || !enough(prevStats)) return null;
-        const diff = rangeStats[key] - prevStats[key];
+        if (!displayStats || !displayPrevStats) return null;
+        const enough = (s) => {
+            if (s[key] == null) return false;
+            if (selectedBucket && s.totalDays === 1) return s[countKey] >= 1;
+            if (selectedBucket && s.totalDays <= 7) return s[countKey] >= 2;
+            return s[countKey] >= Math.max(3, s.totalDays * 0.25);
+        };
+        if (!enough(displayStats) || !enough(displayPrevStats)) return null;
+        const diff = displayStats[key] - displayPrevStats[key];
         const better = higherIsBetter ? diff > 0 : diff < 0;
         return { diff, tone: Math.abs(diff) < 1 ? 'var(--text-tertiary)' : better ? '#27AE60' : '#EB5757' };
     };
@@ -1312,7 +1433,8 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
                         </div>
                         <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                             {range?.label} 동안의 {unit === 'day' ? '일별' : unit === 'week' ? '주별' : unit === 'month' ? '월별' : '연도별'} {unit === 'day' ? '소모량' : '일평균 소모량'}
-                            {hasDelta && ` · ▲▼는 바로 앞 ${range.label} 대비`}
+                            {hasDelta && ` · ▲▼는 ${selectedBucket ? deltaLabel.replace(' 대비', '') : `바로 앞 ${range.label}`} 대비`}
+                            {' · 막대를 눌러 기간별 상세 보기'}
                         </p>
                     </div>
 
@@ -1321,7 +1443,7 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
                         {visibleRanges.length > 1 && visibleRanges.map(r => (
                             <button
                                 key={r.key}
-                                onClick={() => setRangeKey(r.key)}
+                                onClick={() => { setRangeKey(r.key); setSelectedBucketKey(null); }}
                                 style={{
                                     padding: '0.3rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600,
                                     border: '1px solid var(--border-color)', cursor: 'pointer',
@@ -1385,53 +1507,216 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
                     </div>
                 </div>
 
+                {/* 선택된 막대(기간) 네비게이션 바 */}
+                {selectedBucket && (
+                    <div style={{
+                        marginTop: '1rem',
+                        padding: '0.5rem 0.75rem',
+                        borderRadius: '12px',
+                        backgroundColor: 'var(--bg-primary)',
+                        border: '1px solid rgba(242, 153, 74, 0.3)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '0.5rem',
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <button
+                                type="button"
+                                onClick={() => handleStepBucket(-1)}
+                                disabled={selectedIdx <= 0}
+                                title="이전 기간"
+                                style={{
+                                    width: '26px',
+                                    height: '26px',
+                                    borderRadius: '7px',
+                                    border: '1px solid var(--border-color)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    opacity: selectedIdx > 0 ? 1 : 0.3,
+                                    cursor: selectedIdx > 0 ? 'pointer' : 'default',
+                                    backgroundColor: 'var(--bg-secondary)',
+                                }}
+                            >
+                                <ChevronLeft size={14} />
+                            </button>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.86rem', fontWeight: 700, color: ACTIVE_COLOR }}>
+                                    {selectedBucket.displayName}
+                                </span>
+                                {selectedBucket.periodLabel && selectedBucket.periodLabel !== selectedBucket.displayName && (
+                                    <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                                        {selectedBucket.periodLabel}
+                                    </span>
+                                )}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => handleStepBucket(1)}
+                                disabled={selectedIdx >= buckets.length - 1}
+                                title="다음 기간"
+                                style={{
+                                    width: '26px',
+                                    height: '26px',
+                                    borderRadius: '7px',
+                                    border: '1px solid var(--border-color)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    opacity: selectedIdx < buckets.length - 1 ? 1 : 0.3,
+                                    cursor: selectedIdx < buckets.length - 1 ? 'pointer' : 'default',
+                                    backgroundColor: 'var(--bg-secondary)',
+                                }}
+                            >
+                                <ChevronRight size={14} />
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setSelectedBucketKey(null)}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                padding: '0.25rem 0.65rem',
+                                borderRadius: '999px',
+                                fontSize: '0.74rem',
+                                fontWeight: 600,
+                                backgroundColor: 'rgba(242, 153, 74, 0.14)',
+                                color: ACTIVE_COLOR,
+                                border: '1px solid rgba(242, 153, 74, 0.3)',
+                                cursor: 'pointer',
+                            }}
+                        >
+                            <RotateCcw size={12} />
+                            <span>전체 기간({range?.label}) 보기</span>
+                        </button>
+                    </div>
+                )}
+
                 {/* 요약 타일 */}
-                {rangeStats && rangeStats.recorded > 0 && (
-                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '1.25rem' }}>
+                {selectedBucket && displayStats && displayStats.recorded === 0 ? (
+                    <div style={{
+                        marginTop: '1rem',
+                        padding: '0.85rem 1rem',
+                        borderRadius: '12px',
+                        backgroundColor: 'var(--bg-primary)',
+                        fontSize: '0.84rem',
+                        color: 'var(--text-secondary)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '0.5rem',
+                    }}>
+                        <span>선택한 기간({selectedBucket.periodLabel})에 소모 칼로리 기록이 없습니다.</span>
+                        {displayStats.avgIntake != null && (
+                            <span style={{ color: INTAKE_COLOR, fontWeight: 600 }}>
+                                🍽 섭취 {unit === 'day' ? '' : '일평균 '}
+                                {Math.round(displayStats.avgIntake).toLocaleString()} kcal
+                                {displayStats.intakeDays > 1 && ` (${displayStats.intakeDays}일)`}
+                            </span>
+                        )}
+                    </div>
+                ) : selectedBucket && unit === 'day' && displayStats && displayStats.recorded > 0 ? (
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '1rem' }}>
                         <Tile
-                            label="일평균 총 소모"
-                            value={Math.round(rangeStats.avgTotal).toLocaleString()}
+                            label="총 소모"
+                            value={Math.round(displayStats.avgTotal).toLocaleString()}
                             unit="kcal"
                             delta={deltas.total}
+                            deltaLabel={deltaLabel}
                         />
                         <Tile
-                            label="일평균 활동"
-                            value={Math.round(rangeStats.avgActive).toLocaleString()}
+                            label="활동 칼로리"
+                            value={Math.round(displayStats.avgActive).toLocaleString()}
                             unit="kcal"
                             color={ACTIVE_COLOR}
                             delta={deltas.active}
+                            deltaLabel={deltaLabel}
                         />
                         <Tile
-                            label="최고 활동일"
-                            value={Math.round(rangeStats.best.active).toLocaleString()}
+                            label="기초 칼로리"
+                            value={Math.round(selectedBucket.avgBasal).toLocaleString()}
                             unit="kcal"
-                            sub={bestDate ? `${bestDate.getMonth() + 1}/${bestDate.getDate()} (${DAY_NAMES[bestDate.getDay()]})` : ''}
+                            color={BASAL_SOLID}
                         />
-                        {rangeStats.avgIntake != null && (
+                        {displayStats.avgIntake != null && (
                             <Tile
-                                label="일평균 섭취"
-                                value={Math.round(rangeStats.avgIntake).toLocaleString()}
+                                label="섭취 칼로리"
+                                value={Math.round(displayStats.avgIntake).toLocaleString()}
                                 unit="kcal"
                                 color={INTAKE_COLOR}
-                                sub={`${rangeStats.intakeDays}일 기록`}
                                 delta={deltas.intake}
+                                deltaLabel={deltaLabel}
                             />
                         )}
-                        {rangeStats.avgBalance != null && (
+                        {displayStats.avgBalance != null && (
                             <Tile
-                                label="평균 칼로리 수지"
-                                value={signed(rangeStats.avgBalance)}
+                                label="칼로리 수지"
+                                value={signed(displayStats.avgBalance)}
                                 unit="kcal"
-                                color={rangeStats.avgBalance > 0 ? '#EB5757' : '#27AE60'}
+                                color={displayStats.avgBalance > 0 ? '#EB5757' : '#27AE60'}
                                 sub="섭취 − 총 소모"
                                 delta={deltas.balance}
+                                deltaLabel={deltaLabel}
+                            />
+                        )}
+                    </div>
+                ) : displayStats && displayStats.recorded > 0 && (
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '1.25rem' }}>
+                        <Tile
+                            label="일평균 총 소모"
+                            value={Math.round(displayStats.avgTotal).toLocaleString()}
+                            unit="kcal"
+                            delta={deltas.total}
+                            deltaLabel={deltaLabel}
+                        />
+                        <Tile
+                            label="일평균 활동"
+                            value={Math.round(displayStats.avgActive).toLocaleString()}
+                            unit="kcal"
+                            color={ACTIVE_COLOR}
+                            delta={deltas.active}
+                            deltaLabel={deltaLabel}
+                        />
+                        {displayStats.best && (
+                            <Tile
+                                label="최고 활동일"
+                                value={Math.round(displayStats.best.active).toLocaleString()}
+                                unit="kcal"
+                                sub={bestDate ? `${bestDate.getMonth() + 1}/${bestDate.getDate()} (${DAY_NAMES[bestDate.getDay()]})` : ''}
+                            />
+                        )}
+                        {displayStats.avgIntake != null && (
+                            <Tile
+                                label="일평균 섭취"
+                                value={Math.round(displayStats.avgIntake).toLocaleString()}
+                                unit="kcal"
+                                color={INTAKE_COLOR}
+                                sub={`${displayStats.intakeDays}일 기록`}
+                                delta={deltas.intake}
+                                deltaLabel={deltaLabel}
+                            />
+                        )}
+                        {displayStats.avgBalance != null && (
+                            <Tile
+                                label="평균 칼로리 수지"
+                                value={signed(displayStats.avgBalance)}
+                                unit="kcal"
+                                color={displayStats.avgBalance > 0 ? '#EB5757' : '#27AE60'}
+                                sub="섭취 − 총 소모"
+                                delta={deltas.balance}
+                                deltaLabel={deltaLabel}
                             />
                         )}
                         <Tile
                             label="기록 커버리지"
-                            value={Math.min(Math.round((rangeStats.recorded / rangeStats.totalDays) * 100), 100)}
+                            value={Math.min(Math.round((displayStats.recorded / displayStats.totalDays) * 100), 100)}
                             unit="%"
-                            sub={`${rangeStats.recorded}/${rangeStats.totalDays}일`}
+                            sub={`${displayStats.recorded}/${displayStats.totalDays}일`}
                         />
                     </div>
                 )}
@@ -1447,6 +1732,8 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
                         showMA={unit === 'day'}
                         showIntake={showIntake && metric === 'total'}
                         showWeight={showWeight && hasWeightData}
+                        selectedKey={selectedBucket?.key ?? null}
+                        onSelectBucket={handleSelectBucket}
                     />
                 )}
             </div>
@@ -1506,7 +1793,13 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
             )}
 
             {rangeStats && rangeStats.recorded > 0 && (
-                <ActivityHeatmap energyMap={energyMap} intakeMap={intakeMap} weightMap={weightMap} totalDays={rangeStats.totalDays} />
+                <ActivityHeatmap
+                    energyMap={energyMap}
+                    intakeMap={intakeMap}
+                    weightMap={weightMap}
+                    totalDays={rangeStats.totalDays}
+                    highlightRange={selectedBucket ? { startKey: selectedBucket.startKey, endKey: selectedBucket.endKey } : null}
+                />
             )}
 
             {/* 인사이트 */}
@@ -1514,7 +1807,7 @@ const EnergyDashboard = ({ dailyEnergy, meals = [] }) => {
                 <div className="apple-card">
                     <div className="apple-card-title">
                         <TrendingUp size={18} color={ACTIVE_COLOR} />
-                        <span>활동 인사이트</span>
+                        <span>활동 인사이트 ({range?.label})</span>
                     </div>
                     <div className="insights-list" style={{ marginTop: '1.25rem' }}>
                         {rangeStats.bestDow !== -1 && (
